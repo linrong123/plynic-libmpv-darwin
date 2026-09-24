@@ -2,8 +2,11 @@ name: ci
 
 # Every push to a plynic/* branch builds everything (iOS device, iOS
 # simulator, macOS; arm64) and runs the checks. A tag v*-plynic.* also
-# publishes the release: the two xcframeworks archives, dsyms-plynic.zip,
-# manifest.json and the corresponding source (sources/*). Tags with "rc" in
+# creates the release, as a draft: the two xcframeworks archives,
+# dsyms-plynic.zip, manifest.json and the corresponding source (sources/*),
+# with a body that lists the checks run here. The draft is published by
+# tools/release/publish.sh on a Mac, after the one check this runner cannot
+# do (tools/shot gl strict: hardware-accelerated OpenGL). Tags with "rc" in
 # them are prereleases. A pushed tag is never moved: a release that needs
 # another build gets the next number.
 #
@@ -76,15 +79,21 @@ jobs:
         run: |
           nix develop -c make XCODE_PATH="$XCODE_PATH" VERSION="$VERSION"
 
+      # Each check's output goes to checks/<name>.txt too, for the release
+      # body (tools/release/notes.py).
       # Load the macOS frameworks the way an app links them: versions and
       # the decoders/demuxers plynic relies on.
       - name: Probe
-        run: tools/probe/run.sh dist --check
+        shell: bash
+        run: |
+          mkdir -p checks
+          tools/probe/run.sh dist --check | tee checks/probe.txt
 
       # --sub-keepout through the render API's software renderer, and a
       # subtitle track selected while paused showing up.
       - name: Keepout
-        run: tools/keepout/run.sh dist sw
+        shell: bash
+        run: tools/keepout/run.sh dist sw | tee checks/keepout-sw.txt
 
       # screenshot-raw through the render API. VideoToolbox frames reach it
       # through the OpenGL interop; the runner (a VM) has no
@@ -94,17 +103,26 @@ jobs:
       # that decodes in software fails): rc3's frameworks fail it, rc4's
       # pass (macos-15 and macos-26 images; macos-14's VM has no H.264
       # VideoToolbox decoder). The hardware-accelerated run, gl strict, is
-      # left to a Mac.
+      # tools/release/publish.sh's, on a Mac.
       - name: Screenshot
+        shell: bash
         run: |
-          tools/shot/run.sh dist glsw strict
-          tools/shot/run.sh dist sw
+          tools/shot/run.sh dist glsw strict | tee checks/shot-glsw.txt
+          tools/shot/run.sh dist sw | tee checks/shot-sw.txt
 
       - name: Manifest
         run: |
           python3 -c 'import json; m = json.load(open("dist/manifest.json")); print(json.dumps({k: m[k] for k in ("tag", "mpv_commit", "mpv_version", "ffmpeg_version", "deps", "toolchain", "checks")}, indent=2))'
           ls -la dist dist/sources
           (cd dist/sources && shasum -a 256 -c SHA256SUMS)
+
+      # The release body (for a tag; a branch run checks that it builds).
+      - name: Release notes
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 tools/release/notes.py dist checks > dist/release-notes.md
+          cat dist/release-notes.md
 
       - name: Keep the release files
         if: startsWith(github.ref, 'refs/tags/')
@@ -118,6 +136,7 @@ jobs:
             dist/dsyms-plynic.zip
             dist/manifest.json
             dist/sources/
+            dist/release-notes.md
 
   release:
     name: release
@@ -136,9 +155,12 @@ jobs:
       - name: Files
         run: ls -laR dist
 
+      # A draft: tools/release/publish.sh publishes it after the Mac check.
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
+          draft: true
           prerelease: ${{ contains(github.ref_name, 'rc') }}
+          body_path: dist/release-notes.md
           fail_on_unmatched_files: true
           files: |
             dist/*.tar.gz
