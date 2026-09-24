@@ -23,6 +23,10 @@ What a release is, in one file, like plynic-libmpv-android's manifest.json:
                                UUID is inside the xcframework
   toolchain                    Xcode and SDK versions the release was built
                                with
+  ffmpeg_licenses, mpv_gpl     the license string each FFmpeg library reports,
+                               and the -Dgpl= value in Mpv's configuration
+  checks                       the release gates (end of main()); a build that
+                               fails one exits non-zero
 
 Uses the host's otool, vtool, dwarfdump and nm (Xcode command line tools):
 this only inspects what nix built.
@@ -39,6 +43,13 @@ import tarfile
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# What the app's media_kit_libs_{ios,macos}_video pods list (19 frameworks).
+EXPECTED_FRAMEWORKS = [
+    "Ass", "Avcodec", "Avfilter", "Avformat", "Avutil", "Dav1d", "Freetype", "Fribidi",
+    "Harfbuzz", "Mbedcrypto", "Mbedtls", "Mbedx509", "Mpv", "Placebo", "Png16",
+    "Swresample", "Swscale", "Uchardet", "Xml2",
+]
 
 
 def sh(*args):
@@ -168,6 +179,15 @@ def main():
                     if xname == "Avutil" and "ffmpeg_version" not in manifest:
                         m = re.search(rb"FFmpeg version (n?[0-9][0-9.]*)", open(binary, "rb").read())
                         manifest["ffmpeg_version"] = m.group(1).decode() if m else None
+                    if xname == "Mpv":
+                        data = open(binary, "rb").read()
+                        gpl = sorted(set(re.findall(rb"-Dgpl=(\w+)", data)))
+                        manifest.setdefault("mpv_gpl", {})[slice_id] = [g.decode() for g in gpl]
+                    if re.match(r"(Av|Sw)", xname):
+                        m = re.search(rb"lib\w+ license: ([^\0\n]+)", open(binary, "rb").read())
+                        manifest.setdefault("ffmpeg_licenses", {}).setdefault(xname, {})[slice_id] = (
+                            m.group(1).decode() if m else None
+                        )
     manifest["archives"] = archives
     dsyms = os.path.join(dist, "dsyms-plynic.zip")
     manifest["dsyms"] = file_entry(dsyms) if os.path.exists(dsyms) else None
@@ -182,13 +202,34 @@ def main():
             pass
     manifest["toolchain"] = toolchain
 
-    # The gates every release must pass (plynic spec 0017 §6.2 4-1).
+    # The gates every release must pass (plynic spec 0017 §6.2 4-1, §5.2 S4.3).
     problems = []
+    # slice -> LC_BUILD_VERSION platform; otool prints the number or the name
+    platforms = {
+        "ios-arm64": ("2", "IOS"),
+        "ios-arm64-simulator": ("7", "IOSSIMULATOR"),
+        "macos-arm64": ("1", "MACOS"),
+    }
+    # the frameworks privacy/ has a manifest for; they must carry it on iOS
+    privacy = sorted(
+        os.path.basename(p)[: -len(".xcprivacy")] for p in glob.glob(os.path.join(ROOT, "privacy", "*.xcprivacy"))
+    )
+    for name in privacy:
+        if name not in frameworks:
+            problems.append("privacy/%s.xcprivacy: no such framework" % name)
+    if sorted(frameworks) != sorted(EXPECTED_FRAMEWORKS):
+        problems.append("frameworks %s, want %s" % (sorted(frameworks), sorted(EXPECTED_FRAMEWORKS)))
     for name, slices in frameworks.items():
+        if sorted(slices) != sorted(platforms):
+            problems.append("%s: slices %s, want %s" % (name, sorted(slices), sorted(platforms)))
         for sid, info in slices.items():
             want = "12.0" if sid.startswith("macos") else "15.0"
             if info.get("minos") != want:
                 problems.append("%s %s: minos %s, want %s" % (name, sid, info.get("minos"), want))
+            if sid in platforms and info.get("platform") not in platforms[sid]:
+                problems.append("%s %s: platform %s, want %s" % (name, sid, info.get("platform"), platforms[sid][1]))
+            if sid.startswith("ios") and name in privacy and not info["privacy_manifest"]:
+                problems.append("%s %s: no PrivacyInfo.xcprivacy" % (name, sid))
             if info["dynamic_lookups"]:
                 problems.append("%s %s: %d dynamically looked up imports" % (name, sid, info["dynamic_lookups"]))
             for d in info["dependencies"]:
@@ -205,6 +246,16 @@ def main():
         "-plynic-g" + manifest["mpv_commit"][:9]
     ):
         problems.append("mpv_version %s does not name %s" % (manifest.get("mpv_version"), manifest["mpv_commit"]))
+    want_ffmpeg = "n" + manifest["deps"].get("ffmpeg", "?")
+    if manifest.get("ffmpeg_version") != want_ffmpeg:
+        problems.append("ffmpeg_version %s, want %s" % (manifest.get("ffmpeg_version"), want_ffmpeg))
+    for sid, gpl in manifest.get("mpv_gpl", {}).items():
+        if gpl != ["false"]:
+            problems.append("Mpv %s: configuration has -Dgpl=%s, want false" % (sid, "/".join(gpl) or "?"))
+    for name, slices in manifest.get("ffmpeg_licenses", {}).items():
+        for sid, lic in slices.items():
+            if not lic or not lic.startswith("LGPL version"):
+                problems.append("%s %s: license %s, want LGPL" % (name, sid, lic))
     manifest["checks"] = {"passed": not problems, "problems": problems}
 
     with open(os.path.join(dist, "manifest.json"), "w") as f:
