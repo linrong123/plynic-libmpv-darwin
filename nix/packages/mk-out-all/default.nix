@@ -2,6 +2,8 @@
   pkgs ? import ../../utils/default/pkgs.nix,
 }:
 
+# Everything a release publishes: the two xcframeworks archives, the dSYMs
+# of every slice, and the corresponding source (sources/).
 let
   name = "all";
   version = import ../../utils/version/default.nix { inherit pkgs; };
@@ -16,24 +18,19 @@ let
       variant:
       builtins.map (
         flavor:
-        let
-          format = target.format;
-          os = target.os;
-          arch = target.arch;
-        in
         import ../mk-out-archive/default.nix {
           inherit
             pkgs
-            format
-            os
-            arch
             variant
             flavor
             ;
+          inherit (target) format os arch;
         }
       ) flavors
     ) variants
   ) targets;
+  dsyms = import ../mk-out-dsyms/default.nix { inherit pkgs; };
+  sources = import ../mk-out-sources/default.nix { inherit pkgs; };
 in
 
 pkgs.stdenvNoCC.mkDerivation {
@@ -45,14 +42,12 @@ pkgs.stdenvNoCC.mkDerivation {
   buildPhase = ''
     mkdir build
 
-    ARCHIVES="${pkgs.lib.concatStringsSep " " archives}"
-    for ARCHIVE in $ARCHIVES; do
+    for ARCHIVE in ${pkgs.lib.concatStringsSep " " archives}; do
       echo $ARCHIVE
-      cp --no-preserve=mode \
-        $ARCHIVE/*.tar.gz \
-        $ARCHIVE/*.zip \
-        build/
+      cp --no-preserve=mode $ARCHIVE/*.tar.gz build/
     done
+    cp --no-preserve=mode ${dsyms}/*.zip build/
+    cp -r --no-preserve=mode ${sources} build/sources
   '';
   installPhase = ''
     cp -r build $out
