@@ -50,7 +50,7 @@ pkgs.stdenvNoCC.mkDerivation {
     echo $FRAMEWORKS
     read -a FRAMEWORKS <<< "$FRAMEWORKS"
 
-    for FRAMEWORK in ''${FRAMEWORKS[0]}/*.framework; do
+    for FRAMEWORK in ''${FRAMEWORKS[0]}/frameworks/*.framework; do
       FRAMEWORK_NAME=$(basename $FRAMEWORK)
       FRAMEWORK_BASENAME=$(basename $FRAMEWORK .framework)
       echo $FRAMEWORK_NAME
@@ -58,10 +58,17 @@ pkgs.stdenvNoCC.mkDerivation {
       XCODEBUILD_CMD="xcodebuild -verbose -create-xcframework"
 
       for FRAMEWORKS_DIR in ''${FRAMEWORKS[@]}; do
-        if [ -d $FRAMEWORKS_DIR/$FRAMEWORK_NAME ]; then
-          XCODEBUILD_CMD+=" -framework $FRAMEWORKS_DIR/$FRAMEWORK_NAME"
+        if [ -d $FRAMEWORKS_DIR/frameworks/$FRAMEWORK_NAME ]; then
+          XCODEBUILD_CMD+=" -framework $FRAMEWORKS_DIR/frameworks/$FRAMEWORK_NAME"
         else
           echo "Error: $FRAMEWORK_NAME not found in $FRAMEWORKS_DIR" 2> /dev/stderr
+          exit 1
+        fi
+        # each slice carries its dSYM (xcframework DebugSymbolsPath)
+        if [ -d $FRAMEWORKS_DIR/dSYMs/$FRAMEWORK_NAME.dSYM ]; then
+          XCODEBUILD_CMD+=" -debug-symbols $FRAMEWORKS_DIR/dSYMs/$FRAMEWORK_NAME.dSYM"
+        else
+          echo "Error: $FRAMEWORK_NAME.dSYM not found in $FRAMEWORKS_DIR" 2> /dev/stderr
           exit 1
         fi
       done

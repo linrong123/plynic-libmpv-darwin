@@ -15,11 +15,17 @@ struct FrameworkInfo: Codable {
   let architectures: [String]
   let platform: String
   let variant: String?
+  let debugSymbols: [String]
 }
 
-// Parse command-line arguments to extract framework paths, output path, and verbosity flag
-func parseArguments() -> (frameworkPaths: [String], outputPath: String, verbose: Bool) {
+// Parse command-line arguments to extract framework paths, the dSYMs given
+// with `-debug-symbols` after each `-framework` (as xcodebuild takes them),
+// output path, and verbosity flag
+func parseArguments() -> (
+  frameworkPaths: [String], debugSymbols: [String: [String]], outputPath: String, verbose: Bool
+) {
   var frameworkPaths: [String] = []
+  var debugSymbols: [String: [String]] = [:]
   var outputPath: String = ""
   var verbose: Bool = false
 
@@ -35,6 +41,12 @@ func parseArguments() -> (frameworkPaths: [String], outputPath: String, verbose:
         frameworkPaths.append(path)
         args.removeFirst()
       }
+    case "-debug-symbols":
+      args.removeFirst()
+      if let path = args.first, let framework = frameworkPaths.last {
+        debugSymbols[framework, default: []].append(path)
+        args.removeFirst()
+      }
     case "-output":
       args.removeFirst()
       if let path = args.first {
@@ -48,11 +60,13 @@ func parseArguments() -> (frameworkPaths: [String], outputPath: String, verbose:
       args.removeFirst()
     }
   }
-  return (frameworkPaths, outputPath, verbose)
+  return (frameworkPaths, debugSymbols, outputPath, verbose)
 }
 
 // Determine architecture and platform information for a given framework path
-func determineArchitectureAndPlatform(for frameworkPath: String) throws -> FrameworkInfo {
+func determineArchitectureAndPlatform(for frameworkPath: String, debugSymbols: [String]) throws
+  -> FrameworkInfo
+{
   let binaryPath = try findFrameworkBinaryPath(in: frameworkPath)
   let architectures = getArchitectures(usingFileCommandFor: binaryPath)
   let (platform, variant) = getPlatformAndVariant(
@@ -62,7 +76,8 @@ func determineArchitectureAndPlatform(for frameworkPath: String) throws -> Frame
     path: frameworkPath,
     architectures: architectures,
     platform: platform,
-    variant: variant
+    variant: variant,
+    debugSymbols: debugSymbols
   )
 }
 
@@ -139,11 +154,15 @@ func getPlatformAndVariant(usingVtoolFor binaryPath: String, architectures: [Str
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     let output = String(data: data, encoding: .utf8) ?? ""
 
+    // LC_BUILD_VERSION ("platform IOS", "platform IOSSIMULATOR", "platform
+    // MACOS") for current deployment targets; LC_VERSION_MIN_* for old ones
     if output.contains("IOSSIMULATOR")
       || (output.contains("LC_VERSION_MIN_IPHONEOS") && architecture == "x86_64")
     {
       return ("ios", "simulator")
-    } else if output.contains("LC_VERSION_MIN_IPHONEOS") && architecture == "arm64" {
+    } else if output.contains("platform IOS")
+      || (output.contains("LC_VERSION_MIN_IPHONEOS") && architecture == "arm64")
+    {
       return ("ios", nil)
     } else if output.contains("LC_VERSION_MIN_MACOSX") || output.contains("MACOS") {
       return ("macos", nil)
@@ -182,6 +201,17 @@ func createXCFrameworkStructure(outputPath: String, frameworks: [FrameworkInfo],
 
     // Set permissions to rwxr-xr-x as xcodebuild does not handle permissions
     try setPermissions(for: destinationPath, to: 0o755)
+
+    if !framework.debugSymbols.isEmpty {
+      let dsymsPath = "\(targetPath)/dSYMs"
+      try fileManager.createDirectory(
+        atPath: dsymsPath, withIntermediateDirectories: true, attributes: nil)
+      for dsym in framework.debugSymbols {
+        let dsymDestination = "\(dsymsPath)/\(URL(fileURLWithPath: dsym).lastPathComponent)"
+        try fileManager.copyItem(atPath: dsym, toPath: dsymDestination)
+        try setPermissions(for: dsymDestination, to: 0o755)
+      }
+    }
   }
 
   let plistURL = URL(fileURLWithPath: "\(outputPath)/Info.plist")
@@ -218,6 +248,9 @@ func generateInfoPlistData(for frameworks: [FrameworkInfo]) throws -> Data {
       ]
       if let variant = framework.variant {
         libraryDict["SupportedPlatformVariant"] = variant
+      }
+      if !framework.debugSymbols.isEmpty {
+        libraryDict["DebugSymbolsPath"] = "dSYMs"
       }
       return libraryDict
     },
@@ -270,9 +303,11 @@ func formatFrameworks(_ frameworks: [FrameworkInfo]) throws -> String {
 }
 
 // Main execution flow
-let (frameworkPaths, outputPath, verbose) = parseArguments()
+let (frameworkPaths, debugSymbols, outputPath, verbose) = parseArguments()
 
-let frameworks = try frameworkPaths.map { try determineArchitectureAndPlatform(for: $0) }
+let frameworks = try frameworkPaths.map {
+  try determineArchitectureAndPlatform(for: $0, debugSymbols: debugSymbols[$0] ?? [])
+}
 if verbose {
   print("## Frameworks\n")
   print(try formatFrameworks(frameworks))

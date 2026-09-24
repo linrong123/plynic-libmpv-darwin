@@ -6,7 +6,7 @@ set -u # treat unset variables as an error
 # see: VLCKit cocoapods
 # see: https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPFrameworks/Concepts/FrameworkAnatomy.html
 
-find ${DEPS} -name "*.dylib" -type f | while read DYLIB; do
+find ${DEPS} -maxdepth 1 -name "*.dylib" -type f | while read DYLIB; do
     echo "${DYLIB}"
 
     # create framework name: libavcodec.59.dylib -> Avcodec
@@ -45,6 +45,8 @@ find ${DEPS} -name "*.dylib" -type f | while read DYLIB; do
         fi
     done
 
+    ORIGINAL_DYLIB="${DYLIB}"
+
     # copy dylib
     mkdir -p "${FRAMEWORK_DIR}/Versions/A"
     cp "${DYLIB}" "${FRAMEWORK_DIR}/Versions/A/${FRAMEWORK_NAME}"
@@ -80,6 +82,7 @@ find ${DEPS} -name "*.dylib" -type f | while read DYLIB; do
     mkdir -p "${FRAMEWORK_DIR}/Versions/A/Resources"
     cp --no-preserve=mode ${INFO_PLIST_PATH} "${FRAMEWORK_DIR}/Versions/A/Resources/Info.plist"
     sed -i 's/${FRAMEWORK_NAME}/'${FRAMEWORK_NAME}'/g' "${FRAMEWORK_DIR}/Versions/A/Resources/Info.plist"
+    sed -i 's/${SUPPORTED_PLATFORM}/'${SUPPORTED_PLATFORM}'/g' "${FRAMEWORK_DIR}/Versions/A/Resources/Info.plist"
     sed -i 's/${MIN_OS_VERSION}/'${MIN_OS_VERSION}'/g' "${FRAMEWORK_DIR}/Versions/A/Resources/Info.plist"
     plutil -convert binary1 "${FRAMEWORK_DIR}/Versions/A/Resources/Info.plist"
 
@@ -108,4 +111,20 @@ find ${DEPS} -name "*.dylib" -type f | while read DYLIB; do
         ln -s Versions/Current/Headers "${FRAMEWORK_DIR}/Headers"
         ln -s Versions/Current/Modules "${FRAMEWORK_DIR}/Modules"
     fi
+    # privacy manifest (required-reason APIs the library calls)
+    if [ -f "${PRIVACY_MANIFESTS_DIR}/${FRAMEWORK_NAME}.xcprivacy" ]; then
+        cp --no-preserve=mode "${PRIVACY_MANIFESTS_DIR}/${FRAMEWORK_NAME}.xcprivacy" "${FRAMEWORK_DIR}/Versions/A/Resources/PrivacyInfo.xcprivacy"
+    fi
+
+    # dSYM, named and laid out the way Xcode names a framework's dSYM
+    DSYM="${DEPS}/dSYM/$(basename "${ORIGINAL_DYLIB}").dSYM"
+    if [ ! -d "${DSYM}" ]; then
+        echo "Error: no dSYM for ${ORIGINAL_DYLIB}" >&2
+        exit 1
+    fi
+    mkdir -p "${DSYM_OUTPUT_DIR}"
+    cp -R "${DSYM}" "${DSYM_OUTPUT_DIR}/${FRAMEWORK_NAME}.framework.dSYM"
+    chmod -R u+w "${DSYM_OUTPUT_DIR}/${FRAMEWORK_NAME}.framework.dSYM"
+    mv "${DSYM_OUTPUT_DIR}/${FRAMEWORK_NAME}.framework.dSYM/Contents/Resources/DWARF/"* \
+        "${DSYM_OUTPUT_DIR}/${FRAMEWORK_NAME}.framework.dSYM/Contents/Resources/DWARF/${FRAMEWORK_NAME}"
 done

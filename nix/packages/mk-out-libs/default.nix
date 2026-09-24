@@ -11,8 +11,6 @@ let
   version = import ../../utils/version/default.nix { inherit pkgs; };
 
   archs = import ../../utils/constants/archs.nix;
-  flavors = import ../../utils/constants/flavors.nix;
-  variants = import ../../utils/constants/variants.nix;
   callPackage = pkgs.lib.callPackageWith {
     inherit
       pkgs
@@ -33,49 +31,22 @@ if arch != archs.universal then
   let
     xctoolchainOtool = callPackage ../../utils/xctoolchain/otool.nix { };
     xctoolchainInstallNameTool = callPackage ../../utils/xctoolchain/install-name-tool.nix { };
+    xctoolchainStrip = callPackage ../../utils/xctoolchain/strip.nix { };
 
-    mpv = callPackage ../mk-pkg-mpv/default.nix { };
-    ffmpeg = callPackage ../mk-pkg-ffmpeg/default.nix { };
-    mbedtls = callPackage ../mk-pkg-mbedtls/default.nix { };
-    fftoolsFfi = callPackage ../mk-pkg-fftools-ffi/default.nix { };
-    libvorbis = callPackage ../mk-pkg-libvorbis/default.nix { };
-    libogg = callPackage ../mk-pkg-libogg/default.nix { };
-    dav1d = callPackage ../mk-pkg-dav1d/default.nix { };
-    libxml2 = callPackage ../mk-pkg-libxml2/default.nix { };
-    uchardet = callPackage ../mk-pkg-uchardet/default.nix { };
-    libass = callPackage ../mk-pkg-libass/default.nix { };
-    harfbuzz = callPackage ../mk-pkg-harfbuzz/default.nix { };
-    fribidi = callPackage ../mk-pkg-fribidi/default.nix { };
-    freetype = callPackage ../mk-pkg-freetype/default.nix { };
-    libpng = callPackage ../mk-pkg-libpng/default.nix { };
-    libvpx = callPackage ../mk-pkg-libvpx/default.nix { };
-    libx264 = callPackage ../mk-pkg-libx264/default.nix { };
-
-    deps =
-      [
-        mpv
-        ffmpeg
-        mbedtls
-      ]
-      ++ pkgs.lib.optionals (flavor == flavors.encodersgpl) [
-        fftoolsFfi
-        libvorbis
-        libogg
-      ]
-      ++ pkgs.lib.optionals (variant == variants.video) [
-        dav1d
-        libxml2
-        uchardet
-        libass
-        harfbuzz
-        fribidi
-        freetype
-        libpng
-      ]
-      ++ pkgs.lib.optionals (variant == variants.video && flavor == flavors.encodersgpl) [
-        libvpx
-        libx264
-      ];
+    deps = [
+      (callPackage ../mk-pkg-mpv/default.nix { })
+      (callPackage ../mk-pkg-ffmpeg/default.nix { })
+      (callPackage ../mk-pkg-mbedtls/default.nix { })
+      (callPackage ../mk-pkg-libplacebo/default.nix { })
+      (callPackage ../mk-pkg-dav1d/default.nix { })
+      (callPackage ../mk-pkg-libxml2/default.nix { })
+      (callPackage ../mk-pkg-uchardet/default.nix { })
+      (callPackage ../mk-pkg-libass/default.nix { })
+      (callPackage ../mk-pkg-harfbuzz/default.nix { })
+      (callPackage ../mk-pkg-fribidi/default.nix { })
+      (callPackage ../mk-pkg-freetype/default.nix { })
+      (callPackage ../mk-pkg-libpng/default.nix { })
+    ];
   in
   pkgs.stdenvNoCC.mkDerivation {
     inherit name;
@@ -86,25 +57,36 @@ if arch != archs.universal then
     nativeBuildInputs = [
       xctoolchainInstallNameTool
       xctoolchainOtool
+      xctoolchainStrip
     ];
     buildPhase = ''
-      mkdir build
+      mkdir -p build/dSYM
 
-      # Copy dylibs except '*-subset.*.dylib'
-      for dep in "${pkgs.lib.concatStringsSep " " deps}"; do
+      # Copy dylibs except '*-subset.*.dylib', and their dSYMs
+      for dep in ${pkgs.lib.concatStringsSep " " deps}; do
         find $dep/lib \
           -type f -name '*.dylib' \
           ! -name '*-subset.*.dylib' \
           -exec \
           cp {} ./build/ \
           \;
+        if [ -d $dep/dSYM ]; then
+          for dsym in $dep/dSYM/*.dSYM; do
+            case "$(basename $dsym)" in *-subset.*) continue ;; esac
+            cp -R $dsym ./build/dSYM/
+          done
+        fi
       done
+      chmod -R u+w ./build
 
-      # Rename dylib libfoo.100.99.88.dylib -> libfoo.dylib
+      # Rename dylib libfoo.100.99.88.dylib -> libfoo.dylib (and its dSYM)
       for file in ./build/lib*.dylib; do
         new_path=$(echo $file | sed -E 's/^(.*\/lib[^.]*).*$/\1.dylib/')
         if [ $file != $new_path ]; then
           mv $file $new_path
+          if [ -d ./build/dSYM/$(basename $file).dSYM ]; then
+            mv ./build/dSYM/$(basename $file).dSYM ./build/dSYM/$(basename $new_path).dSYM
+          fi
         fi
       done
 
@@ -130,6 +112,26 @@ if arch != archs.universal then
           name=$(echo $dep | sed -n 's|@rpath/\(lib[^.]*\).*|\1.dylib|p')
           install_name_tool -change $dep @rpath/$name $file
         done
+      done
+
+      # Drop run paths into the build machine: mpv's swift build adds the
+      # Xcode toolchain's swift library directory (the Swift runtime the app
+      # uses is the system's, /usr/lib/swift, which stays).
+      for file in ./build/lib*.dylib; do
+        otool -l $file | awk '/cmd LC_RPATH/ {r=1} r && /path / {print $2; r=0}' |
+          while read -r rpath; do
+            case "$rpath" in
+              @*|/usr/lib/swift) ;;
+              *) echo "$file: dropping LC_RPATH $rpath"
+                 install_name_tool -delete_rpath "$rpath" $file ;;
+            esac
+          done
+      done
+
+      # Strip local symbols now that the dSYMs hold them (the exported
+      # symbols stay, and so does the LC_UUID the dSYMs are matched by).
+      for file in ./build/lib*.dylib; do
+        strip -x $file
       done
     '';
     installPhase = ''
@@ -167,7 +169,7 @@ else
       xctoolchainLipo
     ];
     buildPhase = ''
-      mkdir build
+      mkdir -p build/dSYM
 
       # Concatenate source directories and convert string to array
       deps="${pkgs.lib.concatStringsSep " " deps}"
@@ -194,6 +196,14 @@ else
         lipo_cmd+=" -output ./build/$lib_name"
         eval "$lipo_cmd"
       done
+
+      # One architecture per OS (arm64): the dSYMs carry over as they are.
+      # With several, each dSYM's DWARF would have to be lipo'ed the same way.
+      if [ ''${#deps[@]} -ne 1 ]; then
+        echo "Error: more than one architecture, dSYMs are not merged" >&2
+        exit 1
+      fi
+      cp -R ''${deps[0]}/dSYM/. ./build/dSYM/
     '';
     installPhase = ''
       cp -r build $out

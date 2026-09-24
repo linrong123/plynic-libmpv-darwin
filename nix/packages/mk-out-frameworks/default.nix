@@ -72,7 +72,20 @@ pkgs.stdenvNoCC.mkDerivation {
     mkdir build
 
     export DEPS=${libs}
-    export OUTPUT_DIR=$PWD/build
+    export OUTPUT_DIR=$PWD/build/frameworks
+    export DSYM_OUTPUT_DIR=$PWD/build/dSYMs
+    # iOS only: App Store Connect checks privacy manifests; the macOS app is
+    # not distributed through the App Store (see privacy/README.md)
+    export PRIVACY_MANIFESTS_DIR=${if os == oses.macos then "/nonexistent" else "${../../../privacy}"}
+    export SUPPORTED_PLATFORM=${
+      if os == oses.macos then
+        "MacOSX"
+      else if os == oses.ios then
+        "iPhoneOS"
+      else
+        "iPhoneSimulator"
+    }
+    mkdir -p $OUTPUT_DIR $DSYM_OUTPUT_DIR
 
     export MPV_HEADERS_PATH=${mpvHeaders}
     export MPV_MODULE_MAP_PATH=${./common/mpv/module.modulemap}

@@ -5,7 +5,17 @@
       <key>CFBundleExecutable</key>
       <string>${FRAMEWORK_NAME}</string>
       <key>CFBundleIdentifier</key>
-      <string>com.github.media-kit.${FRAMEWORK_NAME}</string>
+      <string>com.github.linrong123.plynic-libmpv.${FRAMEWORK_NAME}</string>
+      <key>CFBundleInfoDictionaryVersion</key>
+      <string>6.0</string>
+      <key>CFBundleName</key>
+      <string>${FRAMEWORK_NAME}</string>
+      <key>CFBundlePackageType</key>
+      <string>FMWK</string>
+      <key>CFBundleSupportedPlatforms</key>
+      <array>
+         <string>${SUPPORTED_PLATFORM}</string>
+      </array>
       <key>CFBundleShortVersionString</key>
       <string>1.0</string>
       <key>CFBundleVersion</key>
