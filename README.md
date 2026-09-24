@@ -197,8 +197,9 @@ $ tools/shot/run.sh dist [gl|sw] [strict]  # screenshot-raw of VideoToolbox / so
 `tools/shot` plays two testsrc2 clips (H.264 → nv12, HEVC 10-bit → p010)
 through the OpenGL render API with `hwdec=videotoolbox` and `hwdec=no` and
 takes `screenshot-raw video` in bgr0 and rgba64 while rendering; `strict`
-(on a Mac) fails a VideoToolbox run that decoded in software. CI runs it
-without `strict` and skips it, saying so, without an OpenGL context.
+(on a Mac) fails a VideoToolbox run that decoded in software. CI's runner
+has no OpenGL context: its gl runs say SKIP (so the VideoToolbox path is
+checked on a Mac, with `strict`), and it runs the software renderer's.
 
 One package: `make TARGET=mk-pkg-mpv-macos-arm64-video`.
 
@@ -252,7 +253,8 @@ which).
   hardware-decoded frame through the render API on iOS or macOS (an app's
   "resume" thumbnail, for one). On rc4's macOS frameworks H.264, HEVC
   8/10-bit and VP9 decoded with VideoToolbox return the picture in bgr0
-  and rgba64, as software-decoded files do (`tools/shot`, new, in CI).
+  and rgba64, as software-decoded files do (`tools/shot`, new; CI runs its
+  software-renderer half, its runner has no OpenGL).
   `static_system` in `SOURCES.json` and `manifest.json`, and the zlib gate
   (see [Source](#source)). Checked on macOS 27 (Xcode 27.0): the release
   gates, `tools/probe --check`, `tools/keepout` sw and gl, `tools/shot gl
