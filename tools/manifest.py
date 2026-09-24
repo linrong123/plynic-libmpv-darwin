@@ -15,6 +15,10 @@ What a release is, in one file, like plynic-libmpv-android's manifest.json:
                                here; patches/ffmpeg/* are byte-identical with
                                plynic-libmpv-android's (same keys there)
   sources                      SOURCES.json: the corresponding source files
+  static_system                what the frameworks link statically from the
+                               Xcode toolchain as it is (no source archive
+                               here); also added to SOURCES.json, see
+                               static_system() below
   archives, dsyms              sha256 and size of each release file
   frameworks                   per framework and slice: LC_UUID, minos, sdk,
                                install name, dependencies, run paths, count
@@ -103,6 +107,92 @@ def dsym_uuids(dsym):
     return re.findall(r"UUID: (\S+)", out)
 
 
+# The toolchain's static archives a framework slice may take code from, by
+# the slice's platform: Swift's back-deployment libraries (the driver links
+# libswiftCompatibility56.a into Swift code built for macOS < 12.3) and
+# compiler-rt's builtins.
+TOOLCHAIN_ARCHIVES = {
+    "macos-arm64": ("swift/macosx/*.a", "clang/*/lib/darwin/libclang_rt.osx.a"),
+    "ios-arm64": ("swift/iphoneos/*.a", "clang/*/lib/darwin/libclang_rt.ios.a"),
+    "ios-arm64-simulator": ("swift/iphonesimulator/*.a", "clang/*/lib/darwin/libclang_rt.iossim.a"),
+}
+
+
+def defined_symbols(path, globals_only):
+    """Names nm -U (-g: external only) lists for the arm64 slice of a Mach-O
+    file or archive; empty if it has no arm64 slice."""
+    args = ["nm", "-U", "-arch", "arm64"] + (["-g"] if globals_only else []) + [path]
+    r = subprocess.run(args, capture_output=True, text=True)
+    return {line.split()[-1] for line in r.stdout.splitlines() if len(line.split()) >= 3}
+
+
+def archive_symbols(path):
+    """The strong external definitions of an archive's arm64 members. Weak
+    ones (___clang_call_terminate, inline C++, ___swift_reflection_version)
+    are emitted by every object that needs them, so they prove nothing."""
+    r = subprocess.run(["nm", "-m", "-U", "-g", "-arch", "arm64", path], capture_output=True, text=True)
+    out = set()
+    for line in r.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and "weak" not in parts[:-1] and parts[-2] == "external":
+            out.add(parts[-1])
+    return out
+
+
+def static_system(xcode, slices):
+    """What the frameworks took from the Xcode toolchain's static archives.
+
+    slices: [(framework, slice id, binary, dSYM DWARF file)]. A slice took
+    code from an archive when its dSYM (the frameworks are stripped, the
+    dSYM keeps every symbol) defines one of the archive's strong external
+    definitions. One record per archive, in SOURCES.json's "static-system"
+    shape: the fields plynic-libmpv-android's static_system entries have,
+    with frameworks per slice instead of ABIs."""
+    usr_lib = os.path.join(xcode, "Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib")
+    bin_dir = os.path.join(os.path.dirname(usr_lib), "bin")
+    provider = "Xcode " + " / ".join(sh(os.path.join(xcode, "Contents/Developer/usr/bin/xcodebuild"),
+                                        "-version").split("\n")[:2]).strip().removeprefix("Xcode ")
+    swift_version = sh(os.path.join(bin_dir, "swiftc"), "--version").splitlines()[0].strip()
+    clang_version = sh(os.path.join(bin_dir, "clang"), "--version").splitlines()[0].strip()
+    cache = {}
+    records = {}
+    for fw, sid, binary, dwarf in slices:
+        defined = defined_symbols(dwarf, False)
+        exported = defined_symbols(binary, True)
+        for pattern in TOOLCHAIN_ARCHIVES[sid]:
+            for archive in sorted(glob.glob(os.path.join(usr_lib, pattern))):
+                if archive not in cache:
+                    cache[archive] = archive_symbols(archive)
+                taken = cache[archive] & defined
+                if not taken:
+                    continue
+                rel = os.path.relpath(archive, usr_lib)
+                name = os.path.basename(archive)[: -len(".a")]
+                if name.startswith("libswift"):
+                    rid = "swift-" + name[len("libswift"):].lower()
+                    what = ("a back-deployment library: the Swift driver links it into Swift code whose "
+                            "deployment target predates the OS runtime it stands in for"
+                            if "Compatibility" in name else "a static library of the Swift toolchain")
+                    rec = dict(version=swift_version, license="Apache-2.0 WITH Swift-exception",
+                               upstream="https://github.com/swiftlang/swift",
+                               note="%s.a, %s (stdlib/toolchain in the Swift repository)" % (name, what))
+                else:
+                    rid = "llvm-compiler-rt-builtins"
+                    rec = dict(version=clang_version, license="Apache-2.0 WITH LLVM-exception",
+                               upstream="https://github.com/swiftlang/llvm-project",
+                               note="compiler-rt's builtins, which clang adds to every link")
+                r = records.setdefault(rid, dict(id=rid, kind="static-system", provider=provider, exported=False,
+                                                 archives={}, **rec))
+                r["exported"] = r["exported"] or bool(taken & exported)
+                arcs = r["archives"].setdefault(sid, [])
+                a = next((a for a in arcs if a["path"] == rel), None)
+                if a is None:
+                    a = {"path": rel, "sha256": sha256(archive), "frameworks": []}
+                    arcs.append(a)
+                a["frameworks"].append(fw)
+    return [records[k] for k in sorted(records)]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("dist")
@@ -113,7 +203,10 @@ def main():
 
     lock = json.load(open(os.path.join(ROOT, "flake.lock")))
     mpv = lock["nodes"]["plynic-mpv"]["locked"]
-    sources = json.load(open(os.path.join(dist, "sources", "SOURCES.json")))
+    sources_path = os.path.join(dist, "sources", "SOURCES.json")
+    # the archives; "static-system" entries (no file) are this script's own
+    # and are rewritten below
+    sources = [s for s in json.load(open(sources_path)) if s.get("kind") != "static-system"]
 
     manifest = {
         "tag": a.tag,
@@ -148,6 +241,7 @@ def main():
 
     archives = {}
     frameworks = {}
+    linked = []  # (framework, slice, binary, dSYM DWARF file), for static_system()
     with tempfile.TemporaryDirectory() as tmp:
         for tgz in sorted(glob.glob(os.path.join(dist, "libmpv-xcframeworks_*.tar.gz"))):
             platform = "ios" if "_ios-" in os.path.basename(tgz) else "macos"
@@ -172,6 +266,9 @@ def main():
                         glob.glob(os.path.join(fw, "**", "PrivacyInfo.xcprivacy"), recursive=True)
                     )
                     frameworks.setdefault(xname, {})[slice_id] = info
+                    dwarf = os.path.join(dsym, "Contents", "Resources", "DWARF", os.path.basename(binary))
+                    if slice_id in TOOLCHAIN_ARCHIVES and os.path.isfile(dwarf):
+                        linked.append((xname, slice_id, binary, dwarf))
                     if xname == "Mpv" and "mpv_version" not in manifest:
                         m = re.search(rb"mpv (v0\.[0-9.]+-plynic-g[0-9a-f]{9}(?:-dirty)?)",
                                       open(binary, "rb").read())
@@ -188,7 +285,16 @@ def main():
                         manifest.setdefault("ffmpeg_licenses", {}).setdefault(xname, {})[slice_id] = (
                             m.group(1).decode() if m else None
                         )
+        statics = static_system(a.xcode, linked)
+        zlib_static = sorted("%s %s" % (fw, sid) for fw, sid, _, dwarf in linked
+                             if "_zlibVersion" in defined_symbols(dwarf, False))
     manifest["archives"] = archives
+    manifest["static_system"] = statics
+    # SOURCES.json gets the same records (after the archives' entries, so a
+    # reader that takes every entry with a "file" sees what it saw before)
+    with open(sources_path, "w") as f:
+        json.dump(sources + statics, f, indent=2, sort_keys=True)
+        f.write("\n")
     dsyms = os.path.join(dist, "dsyms-plynic.zip")
     manifest["dsyms"] = file_entry(dsyms) if os.path.exists(dsyms) else None
     manifest["frameworks"] = frameworks
@@ -256,6 +362,9 @@ def main():
         for sid, lic in slices.items():
             if not lic or not lic.startswith("LGPL version"):
                 problems.append("%s %s: license %s, want LGPL" % (name, sid, lic))
+    for fs in zlib_static:
+        problems.append("%s: zlib is linked in statically; the frameworks use the system's "
+                        "/usr/lib/libz.1.dylib, and a static zlib would need its source under sources/" % fs)
     manifest["checks"] = {"passed": not problems, "problems": problems}
 
     with open(os.path.join(dist, "manifest.json"), "w") as f:
