@@ -1,8 +1,10 @@
-For the "default" and "full" flavors, the following license applies:
+The build scripts in this repository (nix expressions, cross files, shell and
+Python scripts, the xcodebuild/plutil helpers) are MIT licensed:
 
 MIT License
 
 Copyright (c) 2023 birros
+Copyright (c) 2026 linrong123 (plynic changes)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -22,19 +24,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-For the "encodersgpl" flavor, the following license applies:
-
-Copyright (C) 2023 moffatman
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
+The patches under patches/ modify FFmpeg and are under FFmpeg's license
+(LGPL-2.1-or-later; the files they touch are LGPL). The libraries the build
+produces keep their own licenses (mpv with -Dgpl=false and FFmpeg with
+--enable-version3: LGPL; the others: see sources/SOURCES.json of a release).
+No GPL code is built: upstream's "encodersgpl" flavor and everything only it
+used were removed from this repository.

@@ -1,4 +1,3 @@
 {
-  audio = "audio";
   video = "video";
 }

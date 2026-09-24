@@ -1,14 +1,11 @@
+# Only the xcframeworks archives: what plynic's media_kit_libs_{ios,macos}_video
+# forks download.
 let
   formats = import ../constants/formats.nix;
-  libs = import ./libs-frameworks.nix;
   xcframeworks = import ./xcframeworks.nix;
 in
 
-(builtins.map (target: {
-  format = formats.libs;
-  inherit (target) os arch;
-}) libs)
-++ (builtins.map (target: {
+builtins.map (target: {
   format = formats.xcframeworks;
   inherit (target) os arch;
-}) xcframeworks)
+}) xcframeworks
