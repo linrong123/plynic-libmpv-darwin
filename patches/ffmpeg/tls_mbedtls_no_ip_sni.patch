@@ -1,0 +1,18 @@
+diff --git a/libavformat/tls_mbedtls.c b/libavformat/tls_mbedtls.c
+index 9f73f46..7f1d059 100644
+--- a/libavformat/tls_mbedtls.c
++++ b/libavformat/tls_mbedtls.c
+@@ -676,7 +676,12 @@ static int tls_open(URLContext *h, const char *uri, int flags, AVDictionary **op
+         goto fail;
+     }
+ 
+-    if (!shr->listen) {
++    // An IP address goes into the SNI extension only when the certificate
++    // is verified: mbedtls then needs it as the hostname to match against
++    // the iPAddress subjectAltNames, and it sends the same string as SNI.
++    // Otherwise it is left out, as RFC 6066 wants and as the OpenSSL and
++    // GnuTLS backends do.
++    if (!shr->listen && (!shr->numerichost || shr->verify)) {
+         if ((ret = mbedtls_ssl_set_hostname(&tls_ctx->ssl_context, shr->host)) != 0) {
+             av_log(h, AV_LOG_ERROR, "mbedtls_ssl_set_hostname returned %d\n", ret);
+             goto fail;

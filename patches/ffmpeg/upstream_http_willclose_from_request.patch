@@ -1,0 +1,57 @@
+From bd51105806db2f52ec4e37c3196404b7f831caf8 Mon Sep 17 00:00:00 2001
+From: Niklas Haas <git@haasn.dev>
+Date: Tue, 23 Jun 2026 20:37:32 +0200
+Subject: [PATCH] avformat/http: infer default s->willclose based on request
+ header
+
+If we send `Connection: close` but don't get any response Connection header
+back from the HTTP server, we should still assume the server will close our
+connection.
+
+There is a minor bit of ambiguity about what state to assume if the user
+overrode the "Connection:" header, but I'm optimistically leaning in
+favor of keep-alive as the more likely value for a user to set.
+
+Not updating our internal state tracking as a result of user-provided
+headers overriding our own headers is a prior problem with http.c that is
+outside the scope of this PR to fix.
+
+Signed-off-by: Niklas Haas <git@haasn.dev>
+---
+ libavformat/http.c | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/libavformat/http.c b/libavformat/http.c
+index 3d0656d046bd2..d74ed38b39f9d 100644
+--- a/libavformat/http.c
++++ b/libavformat/http.c
+@@ -1536,6 +1536,7 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
+     uint64_t off = s->off;
+     const char *method;
+     int send_expect_100 = 0;
++    int keep_alive = 1;
+ 
+     av_bprint_init_for_buffer(&request, s->buffer, sizeof(s->buffer));
+ 
+@@ -1612,8 +1613,10 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
+     if (send_expect_100 && !has_header(s->headers, "\r\nExpect: "))
+         av_bprintf(&request, "Expect: 100-continue\r\n");
+ 
+-    if (!has_header(s->headers, "\r\nConnection: "))
+-        av_bprintf(&request, "Connection: %s\r\n", s->multiple_requests ? "keep-alive" : "close");
++    if (!has_header(s->headers, "\r\nConnection: ")) {
++        keep_alive = s->multiple_requests;
++        av_bprintf(&request, "Connection: %s\r\n", keep_alive ? "keep-alive" : "close");
++    }
+ 
+     if (!has_header(s->headers, "\r\nHost: "))
+         av_bprintf(&request, "Host: %s\r\n", hoststr);
+@@ -1665,7 +1668,7 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
+     s->icy_data_read    = 0;
+     s->filesize         = UINT64_MAX;
+     s->range_end        = 0;
+-    s->willclose        = 0;
++    s->willclose        = !keep_alive;
+     s->end_chunked_post = 0;
+     s->end_header       = 0;
+ #if CONFIG_ZLIB

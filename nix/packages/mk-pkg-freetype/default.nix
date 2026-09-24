@@ -6,28 +6,28 @@
 
 let
   name = "freetype";
-  packageLock = (import ../../../packages.lock.nix).${name};
-  inherit (packageLock) version;
+  source = callPackage ../../utils/fetch-source/default.nix {
+    inherit name;
+    lock = (import ../../../packages.lock.nix).${name};
+  };
+  inherit (source) version;
 
   callPackage = pkgs.lib.callPackageWith { inherit pkgs os arch; };
   nativeFile = callPackage ../../utils/native-file/default.nix { };
   crossFile = callPackage ../../utils/cross-file/default.nix { };
+  mkDsyms = callPackage ../../utils/dsym/default.nix { };
   xctoolchainLipo = callPackage ../../utils/xctoolchain/lipo.nix { };
   harfbuzz = callPackage ../mk-pkg-harfbuzz/default.nix { };
   libpng = callPackage ../mk-pkg-libpng/default.nix { };
 
   pname = import ../../utils/name/package.nix name;
-  src = callPackage ../../utils/fetch-tarball/default.nix {
-    name = "${pname}-source-${version}";
-    inherit (packageLock) url sha256;
-  };
 in
 
 pkgs.stdenvNoCC.mkDerivation {
   name = "${pname}-${os}-${arch}-${version}";
   pname = pname;
   inherit version;
-  inherit src;
+  src = source.tree;
   dontUnpack = true;
   enableParallelBuilding = true;
   nativeBuildInputs = [
@@ -36,6 +36,7 @@ pkgs.stdenvNoCC.mkDerivation {
     pkgs.pkg-config
     pkgs.python3
     xctoolchainLipo
+    mkDsyms
   ];
   buildInputs = [
     harfbuzz
@@ -52,12 +53,13 @@ pkgs.stdenvNoCC.mkDerivation {
       -Dmmap=disabled \
       -Dpng=enabled \
       -Dtests=disabled \
-      -Dzlib=enabled
+      -Dzlib=system
   '';
   buildPhase = ''
     meson compile -vC build
   '';
   installPhase = ''
     meson install -C build
+    mk-dsyms $out
   '';
 }

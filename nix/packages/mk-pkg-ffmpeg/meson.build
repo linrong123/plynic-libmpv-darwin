@@ -40,6 +40,9 @@ disable_all_options = [
 
 common_options = [
     '--prefix=@PREFIX@',
+    # -Os for all of FFmpeg, as on Android for now; dropping it on both
+    # platforms waits for an -Os/-O3 comparison on a 32-bit TV (plynic spec
+    # 0017 TD7)
     '--enable-small', # reduce libs size
     '--enable-optimizations',
     '--enable-shared',
@@ -49,7 +52,9 @@ common_options = [
     '--enable-mbedtls', # tls support (mbedtls)
     '--enable-version3',
     '--enable-safe-bitstream-reader',
-    '--enable-stripping',
+    # unstripped, so that mk-dsyms can follow the debug map; the frameworks
+    # are stripped after that (mk-out-libs)
+    '--disable-stripping',
     '--enable-avcodec',
     '--enable-avformat',
     '--enable-swresample',
@@ -70,195 +75,6 @@ video_common_options = [
     '--enable-libxml2', # dash support
     '--enable-videotoolbox',
     '--enable-libdav1d', # av1 support
-]
-
-# https://github.com/media-kit/libmpv-android-audio-build/blob/260666c0fef8c154971b5faf3f78da27c2bf2c40/buildscripts/flavors/default.sh
-audio_default_options = [
-    # decoders
-    '--enable-decoder=aac*',
-    '--enable-decoder=ac3',
-    '--enable-decoder=alac',
-    '--enable-decoder=als',
-    '--enable-decoder=ape',
-    '--enable-decoder=atrac*',
-    '--enable-decoder=eac3',
-    '--enable-decoder=flac',
-    '--enable-decoder=gsm*',
-    '--enable-decoder=mp1*',
-    '--enable-decoder=mp2*',
-    '--enable-decoder=mp3*',
-    '--enable-decoder=mpc*',
-    '--enable-decoder=opus',
-    '--enable-decoder=ra*',
-    '--enable-decoder=ralf',
-    '--enable-decoder=shorten',
-    '--enable-decoder=tak',
-    '--enable-decoder=tta',
-    '--enable-decoder=vorbis',
-    '--enable-decoder=wavpack',
-    '--enable-decoder=wma*',
-    '--enable-decoder=pcm*',
-    '--enable-decoder=dsd*',
-    '--enable-decoder=dca', # required by dts
-
-    # parsers   
-    '--enable-parser=aac*',
-    '--enable-parser=ac3',
-    '--enable-parser=cook',
-    '--enable-parser=dca',
-    '--enable-parser=flac',
-    '--enable-parser=gsm',
-    '--enable-parser=mpegaudio',
-    '--enable-parser=tak',
-    '--enable-parser=vorbis',
-
-    # demuxers
-    '--enable-demuxer=aac',
-    '--enable-demuxer=ac3',
-    '--enable-demuxer=aiff',
-    '--enable-demuxer=ape',
-    '--enable-demuxer=asf',
-    '--enable-demuxer=au',
-    '--enable-demuxer=avi',
-    '--enable-demuxer=flac',
-    '--enable-demuxer=flv',
-    '--enable-demuxer=matroska',
-    '--enable-demuxer=mov',
-    '--enable-demuxer=m4v',
-    '--enable-demuxer=mp3',
-    '--enable-demuxer=mpc*',
-    '--enable-demuxer=ogg',
-    '--enable-demuxer=pcm*',
-    '--enable-demuxer=rm',
-    '--enable-demuxer=shorten',
-    '--enable-demuxer=tak',
-    '--enable-demuxer=tta',
-    '--enable-demuxer=wav',
-    '--enable-demuxer=wv',
-    '--enable-demuxer=xwma',
-    '--enable-demuxer=dsf',
-    '--enable-demuxer=dts',
-    '--enable-demuxer=truehd',
-
-    # protocols
-    '--enable-protocol=async',
-    '--enable-protocol=cache',
-    '--enable-protocol=crypto',
-    '--enable-protocol=data',
-    '--enable-protocol=ffrtmphttp',
-    '--enable-protocol=file',
-    '--enable-protocol=ftp',
-    '--enable-protocol=hls',
-    '--enable-protocol=http',
-    '--enable-protocol=httpproxy',
-    '--enable-protocol=https',
-    '--enable-protocol=pipe',
-    '--enable-protocol=rtmp',
-    '--enable-protocol=rtmps',
-    '--enable-protocol=rtmpt',
-    '--enable-protocol=rtmpts',
-    '--enable-protocol=rtp',
-    '--enable-protocol=subfile',
-    '--enable-protocol=tcp',
-    '--enable-protocol=tls',
-    # '--enable-protocol=srt', # WARNING: Option --enable-protocol=srt did not match anything
-
-    # filters
-    '--enable-filter=overlay',
-    '--enable-filter=equalizer',
-]
-
-# https://github.com/media-kit/libmpv-android-video-build/blob/7353af784df9bab3256acd8d90f208024d16ab96/buildscripts/flavors/default.sh
-video_default_options = [
-    # decoders
-    '--enable-decoder=flv',
-    '--enable-decoder=h263',
-    '--enable-decoder=h263i',
-    '--enable-decoder=h263p',
-    '--enable-decoder=h264', # h264*
-    '--enable-decoder=mpeg1video',
-    '--enable-decoder=mpeg2video', # mpeg2*
-    '--enable-decoder=mpeg4', # mpeg4*
-    '--enable-decoder=vp6',
-    '--enable-decoder=vp6a',
-    '--enable-decoder=vp6f',
-    '--enable-decoder=vp8', # vp8*
-    '--enable-decoder=vp9', # vp9*
-    '--enable-decoder=hevc', # hevc*
-    '--enable-decoder=av1', # av1*
-    '--enable-decoder=libdav1d',
-    '--enable-decoder=theora',
-    '--enable-decoder=msmpeg4v1', # msmpeg*
-    '--enable-decoder=msmpeg4v2', # msmpeg*
-    '--enable-decoder=msmpeg4v3', # msmpeg*
-    '--enable-decoder=mjpeg',
-    '--enable-decoder=wmv1', # wmv*
-    '--enable-decoder=wmv2', # wmv*
-    '--enable-decoder=wmv3', # wmv*
-    '--enable-decoder=wmv3image', # wmv*
-
-    '--enable-decoder=ssa',
-    '--enable-decoder=ass',
-    '--enable-decoder=dvbsub',
-    '--enable-decoder=dvdsub',
-    '--enable-decoder=pgssub',
-    '--enable-decoder=srt',
-    '--enable-decoder=stl',
-    '--enable-decoder=subrip',
-    '--enable-decoder=subviewer',
-    '--enable-decoder=subviewer1',
-    '--enable-decoder=text',
-    '--enable-decoder=vplayer',
-    '--enable-decoder=webvtt',
-    '--enable-decoder=movtext',
-
-    # parsers
-    '--enable-parser=h263',
-    '--enable-parser=h264',
-    '--enable-parser=hevc',
-    # '--enable-parser=mpeg4', # WARNING: Option --enable-parser=mpeg4 did not match anything
-    '--enable-parser=mpeg4video',
-    '--enable-parser=mpegvideo',
-
-    # demuxers
-    '--enable-demuxer=concat',
-    '--enable-demuxer=data',
-    '--enable-demuxer=flv',
-    '--enable-demuxer=hls',
-    # '--enable-demuxer=latm', # WARNING: Option --enable-demuxer=latm did not match anything
-    '--enable-demuxer=live_flv',
-    '--enable-demuxer=loas',
-    '--enable-demuxer=m4v',
-    '--enable-demuxer=mov',
-    '--enable-demuxer=mpegps',
-    '--enable-demuxer=mpegts',
-    '--enable-demuxer=mpegvideo',
-    '--enable-demuxer=hevc',
-    '--enable-demuxer=rtsp',
-    # '--enable-demuxer=mpeg4', # WARNING: Option --enable-demuxer=mpeg4 did not match anything
-    '--enable-demuxer=mjpeg',
-    '--enable-demuxer=avi',
-    '--enable-demuxer=av1',
-    '--enable-demuxer=matroska',
-    '--enable-demuxer=dash', # --enable-libxml2 required
-    '--enable-demuxer=webm_dash_manifest',
-
-    '--enable-demuxer=ass',
-    '--enable-demuxer=srt',
-    '--enable-demuxer=stl',
-    '--enable-demuxer=webvtt',
-    '--enable-demuxer=subviewer',
-    '--enable-demuxer=subviewer1',
-    '--enable-demuxer=vplayer',
-
-    # hwaccels
-    '--enable-hwaccel=h263_videotoolbox',
-    '--enable-hwaccel=h264_videotoolbox',
-    '--enable-hwaccel=hevc_videotoolbox',
-    '--enable-hwaccel=mpeg1_videotoolbox',
-    '--enable-hwaccel=mpeg2_videotoolbox',
-    '--enable-hwaccel=mpeg4_videotoolbox',
-    '--enable-hwaccel=vp9_videotoolbox',
 ]
 
 audio_full_options = [
@@ -284,18 +100,11 @@ video_full_options = [
     '--enable-decoder=h264',
 ]
 
-audio_encodersgpl_options = [
-    '--enable-encoders',
-    '--enable-muxers',
-    '--enable-filters',
-    '--enable-libvorbis',
-    # TODO: If audio_encoders is going to exist as its own package, be smarter about what encoders to include
-]
-
-video_encodersgpl_options = [
-    '--enable-libvpx',
-    '--enable-libx264',
-    '--enable-gpl'
+# plynic = full + the spdif muxer (bitstream passthrough groundwork; a muxer
+# costs nothing until an AO asks for it), like plynic-libmpv-android's
+# `plynic` flavor
+video_plynic_options = [
+    '--enable-muxer=spdif',
 ]
 
 # disable all option
@@ -309,23 +118,10 @@ if variant == 'video'
 endif
 
 # components
-if flavor == 'default'
-    options += audio_default_options
-    if variant == 'video'
-        options += video_default_options
-    endif
-elif flavor == 'full'
+if flavor == 'plynic'
     options += audio_full_options
-    if variant == 'video'
-        options += video_full_options
-    endif
-elif flavor == 'encodersgpl'
-    options += audio_full_options
-    options += audio_encodersgpl_options
-    if variant == 'video'
-        options += video_full_options
-        options += video_encodersgpl_options
-    endif
+    options += video_full_options
+    options += video_plynic_options
 endif
 
 p = mod.add_project('configure',

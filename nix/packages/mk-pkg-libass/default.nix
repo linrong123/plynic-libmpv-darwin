@@ -6,47 +6,40 @@
 
 let
   name = "libass";
-  packageLock = (import ../../../packages.lock.nix).${name};
-  inherit (packageLock) version;
+  source = callPackage ../../utils/fetch-source/default.nix {
+    inherit name;
+    lock = (import ../../../packages.lock.nix).${name};
+  };
+  inherit (source) version;
 
   callPackage = pkgs.lib.callPackageWith { inherit pkgs os arch; };
   nativeFile = callPackage ../../utils/native-file/default.nix { };
   crossFile = callPackage ../../utils/cross-file/default.nix { };
+  mkDsyms = callPackage ../../utils/dsym/default.nix { };
+  xctoolchainLipo = callPackage ../../utils/xctoolchain/lipo.nix { };
   fribidi = callPackage ../mk-pkg-fribidi/default.nix { };
   harfbuzz = callPackage ../mk-pkg-harfbuzz/default.nix { };
   freetype = callPackage ../mk-pkg-freetype/default.nix { };
 
   pname = import ../../utils/name/package.nix name;
-  src = callPackage ../../utils/fetch-tarball/default.nix {
-    name = "${pname}-source-${version}";
-    inherit (packageLock) url sha256;
-  };
-  patchedSource = pkgs.runCommand "${pname}-patched-source-${version}" { } ''
-    cp -r ${src} src
-    export src=$PWD/src
-    chmod -R 777 $src
-
-    cd $src
-    patch -p1 <${../../../patches/ltmain-target-passthrough.patch}
-    cd -
-
-    cp ${./meson.build} $src/meson.build
-
-    cp -r $src $out
-  '';
 in
 
+# libass's own meson build (0.17.2+). CoreText is the font provider (the
+# system fonts, PingFang for CJK), and the aarch64 NEON assembly is on, as
+# on Android arm64 (blur, rasterizer and blending in plain C otherwise).
 pkgs.stdenvNoCC.mkDerivation {
   name = "${pname}-${os}-${arch}-${version}";
   pname = pname;
   inherit version;
-  src = patchedSource;
-  dontUnpakck = true;
+  src = source.tree;
+  dontUnpack = true;
   enableParallelBuilding = true;
   nativeBuildInputs = [
     pkgs.meson
     pkgs.ninja
     pkgs.pkg-config
+    xctoolchainLipo
+    mkDsyms
   ];
   buildInputs = [
     fribidi
@@ -57,14 +50,25 @@ pkgs.stdenvNoCC.mkDerivation {
     meson setup build $src \
       --native-file ${nativeFile} \
       --cross-file ${crossFile} \
-      --prefix=$out
+      --prefix=$out \
+      -Ddefault_library=shared \
+      -Dfontconfig=disabled \
+      -Ddirectwrite=disabled \
+      -Dcoretext=enabled \
+      -Dlibunibreak=disabled \
+      -Dasm=enabled \
+      -Drequire-system-font-provider=false \
+      -Dtest=disabled \
+      -Dcompare=disabled \
+      -Dprofile=disabled \
+      -Dfuzz=disabled \
+      -Dcheckasm=disabled
   '';
   buildPhase = ''
-    meson compile -vC build $(basename $src)
+    meson compile -vC build
   '';
   installPhase = ''
-    # manual install to preserve symlinks (meson install -C build)
-    mkdir $out
-    cp -R build/dist$out/* $out/
+    meson install -C build
+    mk-dsyms $out
   '';
 }

@@ -1,0 +1,59 @@
+diff --git a/libavformat/tls_mbedtls.c b/libavformat/tls_mbedtls.c
+index 7f1d059..c939438 100644
+--- a/libavformat/tls_mbedtls.c
++++ b/libavformat/tls_mbedtls.c
+@@ -427,6 +427,24 @@ static void handle_pk_parse_error(URLContext *h, int ret)
+     }
+ }
+ 
++// Why the peer's certificate was rejected, as one line for programs to
++// parse: the flags, and the names mbedtls gives them (from the table
++// mbedtls_x509_crt_verify_info() prints) without the MBEDTLS_X509_ prefix.
++static void log_verify_failure(URLContext *h, uint32_t flags)
++{
++    AVBPrint names;
++
++    av_bprint_init(&names, 0, AV_BPRINT_SIZE_AUTOMATIC);
++#define X509_CRT_ERROR_INFO(code, name, info)                                  \
++    if (flags & (code))                                                        \
++        av_bprintf(&names, "%s%s", names.len ? "|" : "", (name) + strlen("MBEDTLS_X509_"));
++    MBEDTLS_X509_CRT_ERROR_INFO_LIST
++#undef X509_CRT_ERROR_INFO
++    av_log(h, AV_LOG_ERROR, "tls_mbedtls: certificate verify failed: flags=0x%"PRIx32" (%s)\n",
++           flags, names.str);
++    av_bprint_finalize(&names, NULL);
++}
++
+ static void handle_handshake_error(URLContext *h, int ret)
+ {
+     switch (ret) {
+@@ -454,9 +472,12 @@ static void handle_handshake_error(URLContext *h, int ret)
+     case MBEDTLS_ERR_NET_CONN_RESET:
+         av_log(h, AV_LOG_ERROR, "TLS handshake was aborted by peer.\n");
+         break;
+-    case MBEDTLS_ERR_X509_CERT_VERIFY_FAILED:
++    case MBEDTLS_ERR_X509_CERT_VERIFY_FAILED: {
++        TLSContext *tls_ctx = h->priv_data;
++        log_verify_failure(h, mbedtls_ssl_get_verify_result(&tls_ctx->ssl_context));
+         av_log(h, AV_LOG_ERROR, "Certificate verification failed.\n");
+         break;
++    }
+     default:
+         av_log(h, AV_LOG_ERROR, "mbedtls_ssl_handshake returned -0x%x\n", -ret);
+         break;
+@@ -487,6 +508,7 @@ static int tls_handshake(URLContext *h)
+     if (shr->verify) {
+         // check the result of the certificate verification
+         if ((verify_res_flags = mbedtls_ssl_get_verify_result(&tls_ctx->ssl_context)) != 0) {
++            log_verify_failure(h, verify_res_flags);
+             av_log(h, AV_LOG_ERROR, "mbedtls_ssl_get_verify_result reported problems "\
+                                     "with the certificate verification, returned flags: %"PRIu32"\n",
+                                     verify_res_flags);
+@@ -705,6 +727,7 @@ static int tls_open(URLContext *h, const char *uri, int flags, AVDictionary **op
+     if (shr->verify) {
+         // check the result of the certificate verification
+         if ((verify_res_flags = mbedtls_ssl_get_verify_result(&tls_ctx->ssl_context)) != 0) {
++            log_verify_failure(h, verify_res_flags);
+             av_log(h, AV_LOG_ERROR, "mbedtls_ssl_get_verify_result reported problems "\
+                                     "with the certificate verification, returned flags: %"PRIu32"\n",
+                                     verify_res_flags);

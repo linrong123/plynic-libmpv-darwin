@@ -1,0 +1,29 @@
+diff --git a/libavformat/tls_mbedtls.c b/libavformat/tls_mbedtls.c
+index 2fd83f3..9f73f46 100644
+--- a/libavformat/tls_mbedtls.c
++++ b/libavformat/tls_mbedtls.c
+@@ -541,10 +541,23 @@ static int tls_open(URLContext *h, const char *uri, int flags, AVDictionary **op
+ 
+     // load trusted CA
+     if (shr->ca_file) {
+-        if ((ret = mbedtls_x509_crt_parse_file(&tls_ctx->ca_cert, shr->ca_file)) != 0) {
++        const mbedtls_x509_crt *crt;
++        int loaded = 0;
++
++        ret = mbedtls_x509_crt_parse_file(&tls_ctx->ca_cert, shr->ca_file);
++        for (crt = &tls_ctx->ca_cert; crt && crt->version; crt = crt->next)
++            loaded++;
++        if (ret < 0 || !loaded) {
+             av_log(h, AV_LOG_ERROR, "mbedtls_x509_crt_parse_file for CA cert returned %d\n", ret);
+             goto fail;
+         }
++        // A positive value is the number of certificates that could not be
++        // parsed; the others were loaded. A system trust store may contain
++        // some that mbedtls does not support (e.g. with SM2 keys): trust the
++        // rest instead of failing every connection.
++        if (ret > 0)
++            av_log(h, AV_LOG_WARNING, "Skipped %d certificate(s) of the CA file "
++                   "that could not be parsed, %d loaded\n", ret, loaded);
+     }
+ 
+     // load own certificate

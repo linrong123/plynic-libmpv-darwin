@@ -6,21 +6,21 @@
 
 let
   name = "libpng";
-  packageLock = (import ../../../packages.lock.nix).${name};
-  packagePatchLock = (import ../../../packages.lock.nix).libpngPatch;
-  inherit (packageLock) version;
+  locks = import ../../../packages.lock.nix;
+  source = callPackage ../../utils/fetch-source/default.nix {
+    inherit name;
+    lock = locks.${name};
+  };
+  inherit (source) version;
 
   callPackage = pkgs.lib.callPackageWith { inherit pkgs os arch; };
   nativeFile = callPackage ../../utils/native-file/default.nix { };
   crossFile = callPackage ../../utils/cross-file/default.nix { };
+  mkDsyms = callPackage ../../utils/dsym/default.nix { };
 
   pname = import ../../utils/name/package.nix name;
-  src = callPackage ../../utils/fetch-tarball/default.nix {
-    name = "${pname}-source-${version}";
-    inherit (packageLock) url sha256;
-  };
   libpngPatch = builtins.fetchurl {
-    inherit (packagePatchLock) url sha256;
+    inherit (locks.libpngPatch) url sha256;
   };
   patchedSource =
     pkgs.runCommand "${pname}-patched-source-${version}"
@@ -31,11 +31,11 @@ let
         ];
       }
       ''
-        cp -r ${src} src
+        cp -r ${source.tree} src
         export src=$PWD/src
         chmod -R 777 $src
 
-        # extract and patch libpng dependency
+        # meson build files from the WrapDB
         unzip ${libpngPatch} -d libpng-patch
         rsync -a libpng-patch/libpng-*/ $src/
 
@@ -54,6 +54,7 @@ pkgs.stdenvNoCC.mkDerivation {
     pkgs.meson
     pkgs.ninja
     pkgs.pkg-config
+    mkDsyms
   ];
   configurePhase = ''
     meson setup build $src \
@@ -66,5 +67,6 @@ pkgs.stdenvNoCC.mkDerivation {
   '';
   installPhase = ''
     meson install -C build
+    mk-dsyms $out
   '';
 }

@@ -1,83 +1,84 @@
+# Every dependency, pinned. See nix/utils/fetch-source/default.nix for the two
+# kinds of pins.
+#
+# Versions and commits are the ones plynic-libmpv-android pins
+# (buildscripts/include/depinfo.sh), so both platforms build the same sources:
+# git dependencies at the same commit (fetched here from their GitHub mirrors),
+# release tarballs with the same sha256. libpng is Darwin-only (FreeType's PNG
+# glyphs, e.g. colour emoji; Android's FreeType is built without it).
+#
+# mpv is not here: it is the flake input `plynic-mpv` (flake.nix), recorded
+# with its NAR hash in flake.lock.
 {
   dav1d = {
-    version = "1.2.1";
-    url = "https://code.videolan.org/videolan/dav1d/-/archive/1.2.1/dav1d-1.2.1.tar.bz2";
-    sha256 = "a4003623cdc0109dec3aac8435520aa3fb12c4d69454fa227f2658cdb6dab5fa";
+    version = "1.5.4";
+    github = "videolan/dav1d";
+    rev = "54706fc6bc0cdecab7e9593974a4039cc038fca7";
+    hash = "sha256-L3a9MmPWJlxmRa19glWDLvkXHev5oiM5/fxtKOBPMxI=";
   };
   ffmpeg = {
-    version = "6.0";
-    url = "https://ffmpeg.org/releases/ffmpeg-6.0.tar.xz";
-    sha256 = "57be87c22d9b49c112b6d24bc67d42508660e6b718b3db89c44e47e289137082";
-  };
-  fftools-ffi = {
-    version = "9b0d4da0";
-    url = "https://github.com/moffatman/fftools-ffi/archive/9b0d4da026d9c830702ec043c1f1f98d407025af.tar.gz";
-    sha256 = "mgf3ddt3yjmYBd2D0WeEnhgxKNjrEbjYnDx2t4YCfU8=";
+    version = "8.1.3";
+    github = "FFmpeg/FFmpeg";
+    rev = "1041abdc962f4cc4f394aa8de9dc5236c0c3b9e7";
+    hash = "sha256-i2R/HKonZwmkqWWy2U5eY5zSMx1rPkXNHPljN3qUiKQ=";
   };
   freetype = {
-    version = "2.13.2";
-    url = "https://downloads.sourceforge.net/project/freetype/freetype2/2.13.2/freetype-2.13.2.tar.xz";
-    sha256 = "12991c4e55c506dd7f9b765933e62fd2be2e06d421505d7950a132e4f1bb484d";
+    version = "2.13.3";
+    github = "freetype/freetype";
+    rev = "42608f77f20749dd6ddc9e0536788eaad70ea4b5";
+    hash = "sha256-4l90lDtpgm5xlh2m7ifrqNy373DTRTULRkAzicrM93c=";
   };
   fribidi = {
-    version = "1.0.13";
-    url = "https://github.com/fribidi/fribidi/releases/download/v1.0.13/fribidi-1.0.13.tar.xz";
-    sha256 = "7fa16c80c81bd622f7b198d31356da139cc318a63fc7761217af4130903f54a2";
+    version = "1.0.17";
+    github = "fribidi/fribidi";
+    rev = "b93119f5fdc7ea47672cc304c1455ffa6dfe7536";
+    hash = "sha256-U3wVnCFnII09NqRcKCworhlGh30WETJkIDJQqcfU5b4=";
   };
   harfbuzz = {
-    version = "8.1.1";
-    url = "https://github.com/harfbuzz/harfbuzz/archive/8.1.1.tar.gz";
-    sha256 = "b16e6bc0fc7e6a218583f40c7d201771f2e3072f85ef6e9217b36c1dc6b2aa25";
+    version = "11.5.1";
+    github = "harfbuzz/harfbuzz";
+    rev = "7497c4147469fd4102a7229222586ad5c743c5a1";
+    hash = "sha256-hYyZwFa4M2c1hYkTWXuNT3Q1yz5SFgIUi5qF19vuv1Y=";
   };
   libass = {
-    version = "0.17.1";
-    url = "https://github.com/libass/libass/releases/download/0.17.1/libass-0.17.1.tar.xz";
-    sha256 = "f0da0bbfba476c16ae3e1cfd862256d30915911f7abaa1b16ce62ee653192784";
+    version = "0.17.5";
+    github = "libass/libass";
+    rev = "4a05d8127f525943ebf45fdc6497c9e665947f0d";
+    hash = "sha256-srF0SPUNO2kISeNvub0sS5hvJXeIaaX8oZp3jXcHbZ0=";
   };
-  libogg = {
-    version = "1.3.5";
-    url = "https://github.com/xiph/ogg/releases/download/v1.3.5/libogg-1.3.5.tar.gz";
-    sha256 = "0eb4b4b9420a0f51db142ba3f9c64b333f826532dc0f48c6410ae51f4799b664";
+  # With its git submodules (glad, jinja, markupsafe, fast_float,
+  # Vulkan-Headers, nuklear) at the commits the tag pins.
+  libplacebo = {
+    version = "7.360.1";
+    github = "haasn/libplacebo";
+    rev = "cee9b076f2c63104ccfd497fa79c39a867293ec4";
+    submodules = true;
+    hash = "sha256-2F3eUKjvAveahvqKuJFwHvIem9g156hCeKbeYBPovLk=";
   };
   libpng = {
-    version = "1.6.40";
-    url = "https://github.com/pnggroup/libpng/archive/v1.6.40.tar.gz";
-    sha256 = "62d25af25e636454b005c93cae51ddcd5383c40fa14aa3dae8f6576feb5692c2";
+    version = "1.6.58";
+    url = "https://download.sourceforge.net/libpng/libpng-1.6.58.tar.xz";
+    sha256 = "28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775";
   };
+  # meson build files for libpng, from the meson WrapDB
   libpngPatch = {
-    version = "1.6.40-1";
-    url = "https://wrapdb.mesonbuild.com/v2/libpng_1.6.40-1/get_patch";
-    sha256 = "bad558070e0a82faa5c0ae553bcd12d49021fc4b628f232a8e58c3fbd281aae1";
-  };
-  libvorbis = {
-    version = "1.3.7";
-    url = "https://github.com/xiph/vorbis/releases/download/v1.3.7/libvorbis-1.3.7.tar.gz";
-    sha256 = "0e982409a9c3fc82ee06e08205b1355e5c6aa4c36bca58146ef399621b0ce5ab";
-  };
-  libvpx = {
-    version = "1.13.0+1";
-    url = "https://gitlab.freedesktop.org/gstreamer/meson-ports/libvpx/-/archive/90d26fac0d895969a82cd873ad36e39737104c44/libvpx-v1.13.0.tar.gz";
-    sha256 = "4f872ad2709d17b848b3588231495e432c42b9263731b9121fa210a3c5a893ff";
-  };
-  libx264 = {
-    version = "a8b68ebf";
-    url = "https://code.videolan.org/videolan/x264/-/archive/a8b68ebfaa68621b5ac8907610d3335971839d52/libx264-a8b68ebfaa68621b5ac8907610d3335971839d52.tar.gz";
-    sha256 = "164688b63f11a6e4f6d945057fc5c57d5eefb97973d0029fb0303744e10839ff";
+    version = "1.6.58-1";
+    url = "https://wrapdb.mesonbuild.com/v2/libpng_1.6.58-1/get_patch";
+    file = "libpng_1.6.58-1_patch.zip";
+    sha256 = "6e9c6120317d701a9e909eb11f473d129581b8c0b662d0c6ec6a06495c3c0e46";
   };
   libxml2 = {
-    version = "2.11.5";
-    url = "https://download.gnome.org/sources/libxml2/2.11/libxml2-2.11.5.tar.xz";
-    sha256 = "3727b078c360ec69fa869de14bd6f75d7ee8d36987b071e6928d4720a28df3a6";
+    version = "2.14.6";
+    github = "GNOME/libxml2";
+    rev = "d23960a130c5bb82779c9405fbbf85e65fb3c57c";
+    hash = "sha256-EIcNL5B/o74hyc1N+ShrlKsPL5tHhiGgkCR1D7FcDjw=";
   };
+  # The release tarball: a git checkout of the tag lacks the framework/
+  # submodule the 3.6 build needs.
   mbedtls = {
-    version = "3.4.1";
-    url = "https://github.com/Mbed-TLS/mbedtls/archive/refs/tags/v3.4.1.tar.gz";
-    sha256 = "a420fcf7103e54e775c383e3751729b8fb2dcd087f6165befd13f28315f754f5";
-  };
-  mpv = {
-    version = "0.36.0";
-    url = "https://github.com/mpv-player/mpv/archive/refs/tags/v0.36.0.tar.gz";
-    sha256 = "29abc44f8ebee013bb2f9fe14d80b30db19b534c679056e4851ceadf5a5e8bf6";
+    version = "3.6.7";
+    url = "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2";
+    sha256 = "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6";
   };
   uchardet = {
     version = "0.0.8";

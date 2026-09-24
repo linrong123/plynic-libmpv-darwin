@@ -36,10 +36,28 @@
         "type": "github"
       }
     },
+    "plynic-mpv": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1790231453,
+        "narHash": "sha256-YsSLyMfb1619gp5e2v0YNVPEcVz6Ax2D56401hKBczo=",
+        "owner": "linrong123",
+        "repo": "plynic-mpv",
+        "rev": "f226dd63566d42e52dd3feacb16c6695259010d7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "linrong123",
+        "repo": "plynic-mpv",
+        "rev": "f226dd63566d42e52dd3feacb16c6695259010d7",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "flakelight": "flakelight",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "plynic-mpv": "plynic-mpv"
       }
     }
   },

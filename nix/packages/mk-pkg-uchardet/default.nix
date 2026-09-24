@@ -13,12 +13,13 @@ let
   nativeFile = callPackage ../../utils/native-file/default.nix { };
   crossFile = callPackage ../../utils/cross-file/default.nix { };
   xctoolchainInstallNameTool = callPackage ../../utils/xctoolchain/install-name-tool.nix { };
+  mkDsyms = callPackage ../../utils/dsym/default.nix { };
 
   pname = import ../../utils/name/package.nix name;
-  src = callPackage ../../utils/fetch-tarball/default.nix {
-    name = "${pname}-source-${version}";
-    inherit (packageLock) url sha256;
-  };
+  src = (callPackage ../../utils/fetch-source/default.nix {
+    inherit name;
+    lock = packageLock;
+  }).tree;
   patchedSource = pkgs.runCommand "${pname}-patched-source-${version}" { } ''
     mkdir -p $out/subprojects/uchardet
     cp -r ${src}/* $out/subprojects/uchardet/
@@ -39,6 +40,7 @@ pkgs.stdenvNoCC.mkDerivation {
     pkgs.ninja
     pkgs.pkg-config
     xctoolchainInstallNameTool
+    mkDsyms
   ];
   configurePhase = ''
     meson setup build $src \
@@ -66,5 +68,7 @@ pkgs.stdenvNoCC.mkDerivation {
     cp ${./uchardet.pc.in} $out/lib/pkgconfig/uchardet.pc
     sed -i "s|\''${PREFIX}|$out|g" $out/lib/pkgconfig/uchardet.pc
     sed -i "s|\''${VERSION}|${version}|g" $out/lib/pkgconfig/uchardet.pc
+
+    mk-dsyms $out
   '';
 }
