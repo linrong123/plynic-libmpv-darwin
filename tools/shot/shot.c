@@ -3,7 +3,7 @@
 //
 // Plays a file into an offscreen OpenGL context (CGL, 3.2 core, no advanced
 // control: what media_kit_video's TextureHW does on macOS) or through the
-// software renderer, and while the render loop keeps going asks for
+// render API's software renderer, and while the render loop keeps going asks for
 // `screenshot-raw video` in bgr0 and in rgba64, asynchronously, the way an
 // app calls it from another thread. With hwdec=videotoolbox in gl mode the
 // frames are VideoToolbox images, which the screenshot has to download
@@ -14,10 +14,21 @@
 // size; stride and data size fit; the picture is not blank (the clips are
 // FFmpeg's testsrc2).
 //
-// usage: shot <gl|sw> <file> <hwdec> [require-hwdec]
-// Prints "HWDEC <hwdec-current>", one "SHOT ..." line per format and
-// "RESULT PASS|FAIL|SKIP ..."; exit 0 pass, 1 fail, 77 skip (no OpenGL
-// context here). With require-hwdec, decoding in software is a failure.
+// Modes:
+//   gl    a hardware-accelerated CGL context, as the app gets on a Mac
+//   glsw  CGL's software renderer (Apple Software Renderer,
+//         kCGLRendererGenericFloatID): the same OpenGL interop with
+//         VideoToolbox (IOSurface textures) and the same screenshot path, on
+//         a machine without a GPU context - GitHub's macOS runners, where
+//         gl finds no pixel format
+//   sw    the render API's software renderer (no OpenGL, so no VideoToolbox
+//         frames: those need the OpenGL interop)
+//
+// usage: shot <gl|glsw|sw> <file> <hwdec> [require-hwdec]
+// Prints "GL <renderer> | <version>" (gl, glsw), "HWDEC <hwdec-current>", one
+// "SHOT ..." line per format and "RESULT PASS|FAIL|SKIP ..."; exit 0 pass, 1
+// fail, 77 skip (no such OpenGL context here). With require-hwdec, decoding
+// in software is a failure.
 #include <dlfcn.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -102,11 +113,12 @@ static int check_shot(mpv_event *ev, const char *want_fmt, int bpp, int64_t dw, 
 
 int main(int argc, char **argv)
 {
-    if (argc < 4) {
-        fprintf(stderr, "usage: shot <gl|sw> <file> <hwdec> [require-hwdec]\n");
+    if (argc < 4 || (strcmp(argv[1], "gl") && strcmp(argv[1], "glsw") && strcmp(argv[1], "sw"))) {
+        fprintf(stderr, "usage: shot <gl|glsw|sw> <file> <hwdec> [require-hwdec]\n");
         return 2;
     }
-    int gl = !strcmp(argv[1], "gl");
+    int glsw = !strcmp(argv[1], "glsw");
+    int gl = !strcmp(argv[1], "gl") || glsw;
     const char *file = argv[2], *hwdec = argv[3];
     int require_hwdec = argc > 4 && !strcmp(argv[4], "require-hwdec");
     setvbuf(stdout, NULL, _IOLBF, 0);
@@ -114,18 +126,24 @@ int main(int argc, char **argv)
     CGLContextObj cgl = NULL;
     GLuint fbo = 0;
     if (gl) {
-        CGLPixelFormatAttribute attrs[] = {
+        CGLPixelFormatAttribute hw[] = {
             kCGLPFAOpenGLProfile, (CGLPixelFormatAttribute)kCGLOGLPVersion_3_2_Core,
             kCGLPFAAccelerated, kCGLPFAAllowOfflineRenderers, 0,
         };
+        CGLPixelFormatAttribute sw[] = {
+            kCGLPFAOpenGLProfile, (CGLPixelFormatAttribute)kCGLOGLPVersion_3_2_Core,
+            kCGLPFARendererID, (CGLPixelFormatAttribute)kCGLRendererGenericFloatID, 0,
+        };
+        CGLPixelFormatAttribute *attrs = glsw ? sw : hw;
         CGLPixelFormatObj pix = NULL;
         GLint npix = 0;
         if (CGLChoosePixelFormat(attrs, &pix, &npix) != kCGLNoError || !pix ||
             CGLCreateContext(pix, NULL, &cgl) != kCGLNoError) {
-            printf("RESULT SKIP no OpenGL context here\n");
+            printf("RESULT SKIP no %s OpenGL context here\n", glsw ? "software" : "hardware-accelerated");
             return 77;
         }
         CGLSetCurrentContext(cgl);
+        printf("GL %s | %s\n", (const char *)glGetString(GL_RENDERER), (const char *)glGetString(GL_VERSION));
         GLuint tex;
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
@@ -237,6 +255,6 @@ int main(int argc, char **argv)
     }
     int pass = replies == 2 && good == 2;
     printf("RESULT %s (%s, %s: %d frames rendered, %d of %d screenshots)\n", pass ? "PASS" : "FAIL",
-           gl ? "gl" : "sw", file, rendered, good, replies);
+           argv[1], file, rendered, good, replies);
     return pass ? 0 : 1;
 }

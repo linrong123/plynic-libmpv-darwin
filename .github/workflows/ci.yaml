@@ -86,14 +86,18 @@ jobs:
       - name: Keepout
         run: tools/keepout/run.sh dist sw
 
-      # screenshot-raw through the render API. The runner (a VM) has no
-      # OpenGL context, so the gl runs - VideoToolbox frames, the ones that
-      # need downloading - say SKIP here and are run on a Mac
-      # (tools/shot/run.sh dist gl strict); the software renderer's runs
-      # check the rest of the path.
+      # screenshot-raw through the render API. VideoToolbox frames reach it
+      # through the OpenGL interop; the runner (a VM) has no
+      # hardware-accelerated OpenGL, but CGL's software renderer does the
+      # same interop (IOSurface textures), so glsw runs VideoToolbox frames
+      # through the same download a Mac does, strict (a VideoToolbox run
+      # that decodes in software fails): rc3's frameworks fail it, rc4's
+      # pass (macos-15 and macos-26 images; macos-14's VM has no H.264
+      # VideoToolbox decoder). The hardware-accelerated run, gl strict, is
+      # left to a Mac.
       - name: Screenshot
         run: |
-          tools/shot/run.sh dist gl
+          tools/shot/run.sh dist glsw strict
           tools/shot/run.sh dist sw
 
       - name: Manifest
