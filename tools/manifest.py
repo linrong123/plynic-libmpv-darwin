@@ -60,9 +60,15 @@ def file_entry(path):
 def macho_info(binary):
     loads = sh("otool", "-l", binary)
     info = {}
-    m = re.search(r"cmd LC_BUILD_VERSION\n.*?platform (\S+)\n\s+minos (\S+)\n\s+sdk (\S+)", loads, re.S)
-    if m:
-        info["platform"], info["minos"], info["sdk"] = m.group(1), m.group(2), m.group(3)
+    # the LC_BUILD_VERSION load command, up to the next one; otool versions
+    # differ in how they lay it out, so each field is looked up on its own
+    block = re.search(r"cmd LC_BUILD_VERSION\n(.*?)(?:\nLoad command|\Z)", loads, re.S)
+    for key in ("platform", "minos", "sdk"):
+        m = re.search(r"^\s*%s\s+(\S+)" % key, block.group(1), re.M) if block else None
+        info[key] = m.group(1) if m else None
+    if not info["minos"]:
+        print("manifest: no minos in otool -l of %s:\n%s" % (binary, block.group(0) if block else loads[:2000]),
+              file=sys.stderr)
     info["uuid"] = re.search(r"uuid (\S+)", loads).group(1)
     info["install_name"] = re.search(r"cmd LC_ID_DYLIB\n.*?name (\S+)", loads, re.S).group(1)
     info["rpaths"] = re.findall(r"cmd LC_RPATH\n.*?path (\S+)", loads, re.S)
