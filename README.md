@@ -149,6 +149,21 @@ Each release attaches, under `sources/`, what the frameworks are built from
 - `SOURCES.json` (id, version, licence, origin, patches, sha256, size) and
   `SHA256SUMS`
 
+What the frameworks link statically from the Xcode toolchain as it is has
+no archive here (it is Apple's and the Swift project's code, published by
+them); `tools/manifest.py` finds it after the build and records it in
+`manifest.json` (`static_system`) and at the end of `SOURCES.json`, one
+entry per archive with `"kind": "static-system"` and no `"file"`: version
+(`swiftc`/`clang --version`), licence, provider (the Xcode), upstream,
+whether it is exported, and per slice the archive's path in the toolchain,
+its sha256 and the frameworks that took code from it (a slice took code from
+an archive when its dSYM defines one of the archive's strong external
+symbols). Since rc4 that is one entry: `libswiftCompatibility56.a` (Swift's
+back-deployment library for Swift code built for macOS < 12.3) in the macOS
+Mpv, not exported. Nothing takes code from compiler-rt, and zlib, iconv and
+libc++ are the systems' own dylibs (`/usr/lib/libz.1.dylib`, ...); the
+release gates fail if a framework ever links zlib statically.
+
 Kept for at least three years after the last distribution of the app
 version that shipped the release.
 
@@ -167,8 +182,8 @@ wrong minimum OS or LC_BUILD_VERSION platform, a non-system dependency or
 run path, "dynamically looked up" imports, no matching dSYM, an architecture
 other than arm64, or (iOS) lacks its privacy manifest; if FFmpeg's libraries
 report another license than LGPL or another version than the pinned one;
-if Mpv's configuration is not `-Dgpl=false`; or if `mpv-version` does not
-name the pinned commit.
+if Mpv's configuration is not `-Dgpl=false`; if a framework links zlib
+statically; or if `mpv-version` does not name the pinned commit.
 
 Checks on the built frameworks (CI runs both, after the build):
 
@@ -176,7 +191,14 @@ Checks on the built frameworks (CI runs both, after the build):
 $ tools/probe/run.sh dist --check      # versions, decoders, demuxers
 $ tools/probe/run.sh dist <file|url> [seconds] [opt=val ...]   # play, vo/ao null
 $ tools/keepout/run.sh dist [sw|gl]    # --sub-keepout, paused track switches
+$ tools/shot/run.sh dist [gl|sw] [strict]  # screenshot-raw of VideoToolbox / software frames
 ```
+
+`tools/shot` plays two testsrc2 clips (H.264 → nv12, HEVC 10-bit → p010)
+through the OpenGL render API with `hwdec=videotoolbox` and `hwdec=no` and
+takes `screenshot-raw video` in bgr0 and rgba64 while rendering; `strict`
+(on a Mac) fails a VideoToolbox run that decoded in software. CI runs it
+without `strict` and skips it, saying so, without an OpenGL context.
 
 One package: `make TARGET=mk-pkg-mpv-macos-arm64-video`.
 
@@ -219,7 +241,24 @@ which).
 - **v0.41.0-plynic.rc3** — plynic-mpv `c5438ee6c4`: coreaudio without the
   channel map, ao_avfoundation as fallback, the paused-switch redraw;
   `tools/keepout` in CI; stricter release gates; BinaryPath of the macOS
-  slices as xcodebuild writes it (`Mpv.framework/Versions/A/Mpv`).
+  slices as xcodebuild writes it (`Mpv.framework/Versions/A/Mpv`). Known
+  problem, fixed in rc4: `screenshot-raw` of a VideoToolbox frame fails.
+- **v0.41.0-plynic.rc4** — plynic-mpv `d75b92b584`: `screenshot: correctly
+  detect hardware frame` (upstream `c66204b69b`, cherry-picked). Since
+  mpv 0.41 (`9b1d47ece1`) a hardware image carries its software
+  sub-format's descriptor, so the screenshot path handed VideoToolbox frames
+  to libswscale ("Input image format videotoolbox not supported by
+  libswscale") instead of downloading them: no screenshot of any
+  hardware-decoded frame through the render API on iOS or macOS (an app's
+  "resume" thumbnail, for one). On rc4's macOS frameworks H.264, HEVC
+  8/10-bit and VP9 decoded with VideoToolbox return the picture in bgr0
+  and rgba64, as software-decoded files do (`tools/shot`, new, in CI).
+  `static_system` in `SOURCES.json` and `manifest.json`, and the zlib gate
+  (see [Source](#source)). Checked on macOS 27 (Xcode 27.0): the release
+  gates, `tools/probe --check`, `tools/keepout` sw and gl, `tools/shot gl
+  strict`, the 15-case TLS matrix (verdicts and TLS log lines identical to
+  rc3), coreaudio on four outputs x five files; the iOS simulator slice:
+  the probe's checks, playback, audiounit.
 
 ## What changed from media-kit
 
