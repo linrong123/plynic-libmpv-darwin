@@ -29,6 +29,22 @@ architecture is arm64 (Apple silicon Macs, iOS devices, the simulator on
 Apple silicon). The archive names and the directory inside are what media-kit
 publishes, so the app's packages only need a different URL and digest.
 
+**arm64 only means the app has to be arm64 only too.** media-kit's releases
+had x86_64 slices; a universal (arm64 + x86_64) app build against these
+either fails to link its x86_64 slice or, where the pods are weakly linked,
+produces an app that starts without Mpv on an Intel Mac. So:
+
+- macOS: `ARCHS = arm64` (or `EXCLUDED_ARCHS = x86_64`) for the Runner and
+  every pod target, and a check in the release script that `lipo -archs` of
+  the app binary and of `Mpv.framework` both say `arm64`;
+- iOS simulator: `EXCLUDED_ARCHS[sdk=iphonesimulator*]` must include
+  `x86_64` (not just `i386`);
+- updates: an Intel Mac must not be offered the build. Sparkle 2.8.1 (the
+  version plynic 1.0.19 ships) knows no hardware requirement in the appcast
+  (its keys: `minimumSystemVersion`, `maximumSystemVersion`, `channel`,
+  `minimumAutoupdateVersion`, ...), so the appcast alone cannot hold the
+  update back from Intel clients that are already installed.
+
 The 19 frameworks: Mpv, Avcodec, Avfilter, Avformat, Avutil, Swresample,
 Swscale, Placebo, Ass, Freetype, Fribidi, Harfbuzz, Png16, Uchardet, Xml2,
 Dav1d, Mbedtls, Mbedx509, Mbedcrypto. Each is a dynamic framework with
@@ -86,8 +102,12 @@ media-kit's `vp9-hwaccel` (does not build on FFmpeg 8.1; Intel only),
 - iOS device: `audiounit`, `ios-gl` (hardware decoding into GL ES
   textures). iOS simulator: `audiounit` too (media-kit's simulator builds
   had no audio output); no `ios-gl`.
-- macOS: `coreaudio`, `cocoa`, `gl-cocoa`, `videotoolbox-gl`, and
-  `swift-build` targeting macOS 12 (0.41's cocoa code needs Swift).
+- macOS: `coreaudio`, `avfoundation`, `cocoa`, `gl-cocoa`, `videotoolbox-gl`,
+  and `swift-build` targeting macOS 12 (0.41's cocoa code needs Swift).
+  `ao_avfoundation` comes after `ao_coreaudio` in the autoprobe order, so a
+  device coreaudio cannot open still plays (upstream's macOS builds have both;
+  on macOS 27, 0.41's coreaudio failed for every mono file until plynic-mpv
+  `70b11aa32f`).
 - `b_lundef` on and the frameworks the Objective-C parts use linked
   explicitly (AVFoundation, CoreVideo, OpenGLES / IOSurface, OpenGL; objc):
   no framework has "dynamically looked up" imports (media-kit's v0.7.3 iOS
@@ -141,10 +161,22 @@ $ nix develop -c make XCODE_PATH=/Applications/Xcode.app VERSION=v0.41.0-plynic.
 $ ls dist
 ```
 
-`dist/` gets the release files and `manifest.json`; the build fails if a
-framework has the wrong minimum OS, a non-system dependency or run path,
-"dynamically looked up" imports, no matching dSYM, or an `mpv-version` that
-does not name the pinned commit.
+`dist/` gets the release files and `manifest.json`; the build fails if the
+19 frameworks and three slices are not all there, or a framework has the
+wrong minimum OS or LC_BUILD_VERSION platform, a non-system dependency or
+run path, "dynamically looked up" imports, no matching dSYM, an architecture
+other than arm64, or (iOS) lacks its privacy manifest; if FFmpeg's libraries
+report another license than LGPL or another version than the pinned one;
+if Mpv's configuration is not `-Dgpl=false`; or if `mpv-version` does not
+name the pinned commit.
+
+Checks on the built frameworks (CI runs both, after the build):
+
+```shell
+$ tools/probe/run.sh dist --check      # versions, decoders, demuxers
+$ tools/probe/run.sh dist <file|url> [seconds] [opt=val ...]   # play, vo/ao null
+$ tools/keepout/run.sh dist [sw|gl]    # --sub-keepout, paused track switches
+```
 
 One package: `make TARGET=mk-pkg-mpv-macos-arm64-video`.
 
@@ -166,7 +198,28 @@ $ nix flake lock --override-input plynic-mpv github:linrong123/plynic-mpv/<sha>
 
 CI (`.github/workflows/ci.yaml`, `macos-15`, the image's default Xcode)
 builds every push to a `plynic/*` branch, and publishes a release for every
-tag `v*-plynic.*`; tags containing `rc` are prereleases.
+tag `v*-plynic.*`; tags containing `rc` are prereleases. The build job only
+reads the repository; a separate job, for tags only, uploads the release.
+Third-party actions are pinned by commit.
+
+## Releases
+
+A pushed tag is never moved or deleted, even when its CI run fails before
+publishing anything: the fix goes out under the next number. The app's lock
+refers to a tag and can go back to any earlier one.
+
+Tags are shared with plynic-libmpv-android: the same `v0.41.0-plynic.<n>` on
+both is built from the same plynic-mpv commit (their `manifest.json`s say
+which).
+
+- **v0.41.0-plynic.rc2** — plynic-mpv `f226dd6356`: the first release of
+  this repository. Known problems, fixed in rc3: on macOS 27 no audio for
+  mono files (coreaudio, no other AO built); a subtitle track selected
+  while paused often showing nothing until unpause.
+- **v0.41.0-plynic.rc3** — plynic-mpv `c5438ee6c4`: coreaudio without the
+  channel map, ao_avfoundation as fallback, the paused-switch redraw;
+  `tools/keepout` in CI; stricter release gates; BinaryPath of the macOS
+  slices as xcodebuild writes it (`Mpv.framework/Versions/A/Mpv`).
 
 ## What changed from media-kit
 
@@ -177,13 +230,14 @@ tag `v*-plynic.*`; tags containing `rc` are prereleases.
 - arm64 only; iOS 15.0 / macOS 12.0.
 - mpv from the plynic-mpv flake input instead of a tarball plus patches
   (its Darwin changes are commits there: objc meson fix, audiounit session
-  option, no fstatfs on iOS).
+  option, no fstatfs on iOS, coreaudio without the channel map).
 - FFmpeg n8.1.3 and dependencies at the Android versions; libplacebo added
   (Placebo.framework: 19 frameworks instead of 18); libass and libxml2 with
   their own meson builds; mbedtls 3.6.
 - The xcodebuild helper understands `-debug-symbols` and LC_BUILD_VERSION
-  platforms; dSYMs, privacy manifests, Info.plist keys, deterministic
-  archives, `manifest.json`, `sources/`.
+  platforms and writes the resolved `BinaryPath`; dSYMs, privacy manifests,
+  Info.plist keys, deterministic archives, `manifest.json`, `sources/`.
+- macOS builds `ao_avfoundation` as well.
 - CI records the Xcode it used instead of naming one.
 
 ## License
