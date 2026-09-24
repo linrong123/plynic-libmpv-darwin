@@ -12,6 +12,7 @@ let vtoolCmdPath = try findExecutable("vtool")
 // Structure to store framework information
 struct FrameworkInfo: Codable {
   let path: String
+  let binaryPath: String  // relative to the slice directory, as Info.plist wants it
   let architectures: [String]
   let platform: String
   let variant: String?
@@ -74,11 +75,26 @@ func determineArchitectureAndPlatform(for frameworkPath: String, debugSymbols: [
 
   return FrameworkInfo(
     path: frameworkPath,
+    binaryPath: relativeBinaryPath(frameworkPath: frameworkPath, binaryPath: binaryPath),
     architectures: architectures,
     platform: platform,
     variant: variant,
     debugSymbols: debugSymbols
   )
+}
+
+// The binary's path below the slice directory with every symbolic link
+// resolved, as xcodebuild writes BinaryPath: "Mpv.framework/Mpv" for an iOS
+// (shallow) framework, "Mpv.framework/Versions/A/Mpv" for a macOS (versioned)
+// one, not the "Mpv.framework/Mpv" link.
+func relativeBinaryPath(frameworkPath: String, binaryPath: String) -> String {
+  let name = URL(fileURLWithPath: frameworkPath).lastPathComponent
+  let fw = URL(fileURLWithPath: frameworkPath).resolvingSymlinksInPath().path
+  let bin = URL(fileURLWithPath: binaryPath).resolvingSymlinksInPath().path
+  if bin.hasPrefix(fw + "/") {
+    return name + "/" + bin.dropFirst(fw.count + 1)
+  }
+  return name + "/" + name.replacingOccurrences(of: ".framework", with: "")
 }
 
 // Custom errors for framework processing
@@ -241,8 +257,7 @@ func generateInfoPlistData(for frameworks: [FrameworkInfo]) throws -> Data {
       var libraryDict: [String: Any] = [
         "LibraryIdentifier": frameworkIdentifier(for: framework),
         "LibraryPath": "\(framework.path.components(separatedBy: "/").last!)",
-        "BinaryPath":
-          "\(framework.path.components(separatedBy: "/").last!)/\(framework.path.components(separatedBy: "/").last!.replacingOccurrences(of: ".framework", with: ""))",
+        "BinaryPath": framework.binaryPath,
         "SupportedArchitectures": framework.architectures,
         "SupportedPlatform": framework.platform,
       ]
