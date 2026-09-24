@@ -18,7 +18,9 @@ What a release is, in one file, like plynic-libmpv-android's manifest.json:
   static_system                what the frameworks link statically from the
                                Xcode toolchain as it is (no source archive
                                here); also added to SOURCES.json, see
-                               static_system() below
+                               static_system() below, after which
+                               sources/SHA256SUMS gets SOURCES.json's new
+                               digest
   archives, dsyms              sha256 and size of each release file
   frameworks                   per framework and slice: LC_UUID, minos, sdk,
                                install name, dependencies, run paths, count
@@ -137,6 +139,14 @@ def archive_symbols(path):
         if len(parts) >= 3 and "weak" not in parts[:-1] and parts[-2] == "external":
             out.add(parts[-1])
     return out
+
+
+# zlib's API, whatever build it comes from: a framework that defines any
+# of these links zlib in statically (libpng's meson wrap falls back to a
+# zlib subproject when it cannot find the system's, for one). Z_PREFIX
+# builds name them z_<name>; Mach-O adds the leading underscore.
+ZLIB_API = ("inflate", "deflate", "crc32", "adler32", "zlibVersion")
+ZLIB_SYMBOLS = frozenset("_" + p + n for n in ZLIB_API for p in ("", "z_"))
 
 
 def static_system(xcode, slices):
@@ -286,15 +296,27 @@ def main():
                             m.group(1).decode() if m else None
                         )
         statics = static_system(a.xcode, linked)
-        zlib_static = sorted("%s %s" % (fw, sid) for fw, sid, _, dwarf in linked
-                             if "_zlibVersion" in defined_symbols(dwarf, False))
+        # the dSYM keeps every symbol, local ones too; the binary its
+        # exported ones (in case a slice had no dSYM, which fails anyway)
+        zlib_static = sorted(
+            "%s %s (%s)" % (fw, sid, ", ".join(sorted(found)))
+            for fw, sid, binary, dwarf in linked
+            for found in [ZLIB_SYMBOLS & (defined_symbols(dwarf, False) | defined_symbols(binary, False))]
+            if found)
     manifest["archives"] = archives
     manifest["static_system"] = statics
     # SOURCES.json gets the same records (after the archives' entries, so a
-    # reader that takes every entry with a "file" sees what it saw before)
+    # reader that takes every entry with a "file" sees what it saw before),
+    # and SHA256SUMS its digest: the nix build wrote SHA256SUMS for the
+    # archives only, and SOURCES.json is only final now.
     with open(sources_path, "w") as f:
         json.dump(sources + statics, f, indent=2, sort_keys=True)
         f.write("\n")
+    sums_path = os.path.join(dist, "sources", "SHA256SUMS")
+    with open(sums_path) as f:
+        sums = [line for line in f.read().splitlines() if not line.endswith("  SOURCES.json")]
+    with open(sums_path, "w") as f:
+        f.write("".join(line + "\n" for line in sums) + "%s  SOURCES.json\n" % sha256(sources_path))
     dsyms = os.path.join(dist, "dsyms-plynic.zip")
     manifest["dsyms"] = file_entry(dsyms) if os.path.exists(dsyms) else None
     manifest["frameworks"] = frameworks
@@ -365,6 +387,12 @@ def main():
     for fs in zlib_static:
         problems.append("%s: zlib is linked in statically; the frameworks use the system's "
                         "/usr/lib/libz.1.dylib, and a static zlib would need its source under sources/" % fs)
+    # every file under sources/ has its line in SHA256SUMS, SOURCES.json too
+    with open(sums_path) as f:
+        listed = {line.split("  ", 1)[1] for line in f.read().splitlines() if "  " in line}
+    unlisted = sorted(set(os.listdir(os.path.join(dist, "sources"))) - listed - {"SHA256SUMS"})
+    if unlisted:
+        problems.append("sources/SHA256SUMS does not list %s" % ", ".join(unlisted))
     manifest["checks"] = {"passed": not problems, "problems": problems}
 
     with open(os.path.join(dist, "manifest.json"), "w") as f:

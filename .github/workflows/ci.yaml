@@ -100,6 +100,7 @@ jobs:
         run: |
           python3 -c 'import json; m = json.load(open("dist/manifest.json")); print(json.dumps({k: m[k] for k in ("tag", "mpv_commit", "mpv_version", "ffmpeg_version", "deps", "toolchain", "checks")}, indent=2))'
           ls -la dist dist/sources
+          (cd dist/sources && shasum -a 256 -c SHA256SUMS)
 
       - name: Keep the release files
         if: startsWith(github.ref, 'refs/tags/')
