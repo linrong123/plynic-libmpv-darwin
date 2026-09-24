@@ -267,8 +267,13 @@ pkgs.stdenvNoCC.mkDerivation {
     # without swift, 0.41 compiles call sites whose implementations are
     # Swift-only, and mpv_create() jumps to a null pointer; so swift-build
     # is on, targeting the same macOS as everything else.
+    # ao_avfoundation comes after ao_coreaudio in the autoprobe order: the
+    # app does not pick an AO, so when coreaudio cannot open the device
+    # (macOS 27 refused 0.41's channel map for every mono file, plynic-mpv
+    # 70b11aa32f) there is still sound, as in upstream's own macOS builds.
     MACOS_OPTIONS=(
       -Dcoreaudio=enabled
+      -Davfoundation=enabled
       -Dcocoa=enabled
       -Dgl-cocoa=enabled
       -Dvideotoolbox-gl=enabled

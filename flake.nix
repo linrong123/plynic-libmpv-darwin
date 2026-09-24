@@ -14,7 +14,7 @@
     # and try local work with
     #   nix build --override-input plynic-mpv git+file:///path/to/plynic-mpv?rev=<sha> ...
     plynic-mpv = {
-      url = "github:linrong123/plynic-mpv/f226dd63566d42e52dd3feacb16c6695259010d7";
+      url = "github:linrong123/plynic-mpv/c5438ee6c4f9367536852c29b4575ce3db5a40a2";
       flake = false;
     };
   };
