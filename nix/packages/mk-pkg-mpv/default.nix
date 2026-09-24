@@ -118,6 +118,10 @@ pkgs.stdenvNoCC.mkDerivation {
     libplacebo
   ];
   configurePhase = ''
+    # swiftc (macOS) keeps its clang module cache under $HOME, which the nix
+    # sandbox has no writable one of (/homeless-shelter)
+    export HOME=$TMPDIR
+
     # Every option of mpv 0.41's meson.options, off; what the platform needs
     # is switched on below.
     DISABLE_ALL_OPTIONS=(
