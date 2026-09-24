@@ -1,29 +1,32 @@
 name: ci
 
+# Every push to a plynic/* branch builds everything (iOS device, iOS
+# simulator, macOS; arm64). A tag v*-plynic.* also publishes the release:
+# the two xcframeworks archives, dsyms-plynic.zip, manifest.json and the
+# corresponding source (sources/*). Tags with "rc" in them are prereleases.
 on:
   push:
     branches:
-      - main
+      - "plynic/**"
     tags:
-      - "*"
+      - "v*-plynic.*"
   pull_request:
-    branches:
-      - "*"
+  workflow_dispatch:
 
 jobs:
-  ci:
-    name: ci
-    # https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md
+  build:
+    name: build
     runs-on: macos-15
+    timeout-minutes: 240
     permissions:
       contents: write
     steps:
       - name: Platform info
         run: |
-          printf "%-23s %s\n" "ProductName:"    "$(/usr/bin/sw_vers -productName)"
-          printf "%-23s %s\n" "ProductVersion:" "$(/usr/bin/sw_vers -productVersion)"
-          printf "%-23s %s\n" "BuildVersion:"   "$(/usr/bin/sw_vers -buildVersion)"
-          printf "%-23s %s\n" "Arch:"           "$(uname -m)"
+          sw_vers
+          uname -m
+          sysctl -n hw.ncpu
+          df -h /
 
       - uses: actions/checkout@v6
 
@@ -36,53 +39,54 @@ jobs:
       - name: Nix version
         run: nix --version
 
-      - name: Show Nix config
-        run: nix config show
-
       - uses: DeterminateSystems/magic-nix-cache-action@v13
+        continue-on-error: true
         with:
           use-flakehub: false
 
-      # See ${workspace}/nix/overlays/xcode.nix
-      - name: Xcode path
-        id: xcode_path
+      # The runner image's default Xcode; its version goes into manifest.json
+      # (toolchain), so nothing here names a particular Xcode.
+      - name: Xcode
+        id: xcode
         run: |
-          XCODE_PATH=$(realpath /Applications/Xcode_16.1.0.app)
+          XCODE_PATH=$(realpath "$(xcode-select -p)/../..")
+          "$XCODE_PATH/Contents/Developer/usr/bin/xcodebuild" -version
+          echo "xcode_path=$XCODE_PATH" >> "$GITHUB_OUTPUT"
 
-          ${XCODE_PATH}/Contents/Developer/usr/bin/xcodebuild -version
-
-          echo "xcode_path=${XCODE_PATH}" >> $GITHUB_OUTPUT
-
-      - name: Build version
+      - name: Version
         id: version
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+          VERSION=develop
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             VERSION="${GITHUB_REF#refs/tags/}"
           fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-
-      # See ${workspace}/Makefile
       - name: Build
         env:
-          XCODE_PATH: ${{ steps.xcode_path.outputs.xcode_path }}
+          XCODE_PATH: ${{ steps.xcode.outputs.xcode_path }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          nix develop -c make XCODE_PATH=${XCODE_PATH} VERSION=${VERSION}
+          nix develop -c make XCODE_PATH="$XCODE_PATH" VERSION="$VERSION"
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          if-no-files-found: error
-          path: |
-            result/*.tar.gz
-            result/*.zip
+      # Load the macOS frameworks the way an app links them: versions and
+      # the decoders/demuxers plynic relies on.
+      - name: Probe
+        run: tools/probe/run.sh dist --check
+
+      - name: Manifest
+        run: |
+          python3 -c 'import json; m = json.load(open("dist/manifest.json")); print(json.dumps({k: m[k] for k in ("tag", "mpv_commit", "mpv_version", "ffmpeg_version", "deps", "toolchain", "checks")}, indent=2))'
+          ls -la dist dist/sources
 
       - name: Release
         uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
+          prerelease: ${{ contains(github.ref_name, 'rc') }}
           fail_on_unmatched_files: true
           files: |
-            result/*.tar.gz
-            result/*.zip
+            dist/*.tar.gz
+            dist/dsyms-plynic.zip
+            dist/manifest.json
+            dist/sources/*
