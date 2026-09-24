@@ -162,7 +162,12 @@ symbols). Since rc4 that is one entry: `libswiftCompatibility56.a` (Swift's
 back-deployment library for Swift code built for macOS < 12.3) in the macOS
 Mpv, not exported. Nothing takes code from compiler-rt, and zlib, iconv and
 libc++ are the systems' own dylibs (`/usr/lib/libz.1.dylib`, ...); the
-release gates fail if a framework ever links zlib statically.
+release gates fail if a framework ever links zlib statically (any slice
+whose dSYM or binary defines `inflate`, `deflate`, `crc32`, `adler32` or
+`zlibVersion`, also `z_`-prefixed). `SHA256SUMS` lists every file under
+`sources/`, `SOURCES.json` included (since rc5: `manifest.py` adds its line
+after writing the static-system entries), and a gate fails a release where
+it does not.
 
 Kept for at least three years after the last distribution of the app
 version that shipped the release.
@@ -183,7 +188,8 @@ run path, "dynamically looked up" imports, no matching dSYM, an architecture
 other than arm64, or (iOS) lacks its privacy manifest; if FFmpeg's libraries
 report another license than LGPL or another version than the pinned one;
 if Mpv's configuration is not `-Dgpl=false`; if a framework links zlib
-statically; or if `mpv-version` does not name the pinned commit.
+statically; if `sources/SHA256SUMS` misses a file; or if `mpv-version` does
+not name the pinned commit.
 
 Checks on the built frameworks (CI runs both, after the build):
 
@@ -191,15 +197,22 @@ Checks on the built frameworks (CI runs both, after the build):
 $ tools/probe/run.sh dist --check      # versions, decoders, demuxers
 $ tools/probe/run.sh dist <file|url> [seconds] [opt=val ...]   # play, vo/ao null
 $ tools/keepout/run.sh dist [sw|gl]    # --sub-keepout, paused track switches
-$ tools/shot/run.sh dist [gl|sw] [strict]  # screenshot-raw of VideoToolbox / software frames
+$ tools/shot/run.sh dist [gl|glsw|sw] [strict]  # screenshot-raw of VideoToolbox / software frames
 ```
 
 `tools/shot` plays two testsrc2 clips (H.264 → nv12, HEVC 10-bit → p010)
 through the OpenGL render API with `hwdec=videotoolbox` and `hwdec=no` and
 takes `screenshot-raw video` in bgr0 and rgba64 while rendering; `strict`
-(on a Mac) fails a VideoToolbox run that decoded in software. CI's runner
-has no OpenGL context: its gl runs say SKIP (so the VideoToolbox path is
-checked on a Mac, with `strict`), and it runs the software renderer's.
+fails a VideoToolbox run that decoded in software (and a run that found no
+such OpenGL context). `gl` is a hardware-accelerated CGL context, what the
+app gets on a Mac. `glsw` is CGL's software renderer ("Apple Software
+Renderer"), which does mpv's VideoToolbox interop (IOSurface textures) too,
+so the frames reach `screenshot-raw` as VideoToolbox images and have to be
+downloaded exactly as on a Mac: CI's runner has no hardware-accelerated
+OpenGL, and runs `glsw strict` (rc3's frameworks fail it, rc4's pass; on
+the macos-15 and macos-26 images, macos-14's VM has no H.264 VideoToolbox
+decoder) and `sw` (the render API's software renderer, software decoding
+only). `gl strict` is the pre-release step on a Mac, below.
 
 One package: `make TARGET=mk-pkg-mpv-macos-arm64-video`.
 
@@ -220,10 +233,25 @@ $ nix flake lock --override-input plynic-mpv github:linrong123/plynic-mpv/<sha>
 ```
 
 CI (`.github/workflows/ci.yaml`, `macos-15`, the image's default Xcode)
-builds every push to a `plynic/*` branch, and publishes a release for every
-tag `v*-plynic.*`; tags containing `rc` are prereleases. The build job only
-reads the repository; a separate job, for tags only, uploads the release.
-Third-party actions are pinned by commit.
+builds every push to a `plynic/*` branch and runs the checks above
+(`tools/shot` as `glsw strict` and `sw`). For a tag `v*-plynic.*` it
+creates the release **as a draft**, with a body that lists what CI checked
+(`tools/release/notes.py`); tags containing `rc` are prereleases. The build
+job only reads the repository; a separate job, for tags only, uploads the
+release. Third-party actions are pinned by commit.
+
+**Publishing a release is a step on a Mac** (Apple silicon, a GPU, `gh`
+with write access): `tools/release/publish.sh <tag>` downloads the draft's
+macOS archive and `manifest.json`, checks the archive against the manifest
+(sha256, tag, release gates), runs `tools/shot/run.sh <dist> gl strict`
+(tools/shot from the tagged commit) on it, and only if all four cases pass
+in a hardware-accelerated context attaches the output as
+`screenshot-check-macos.txt` (archive sha256, machine, macOS, GL renderer,
+every case), writes the result into the release body and publishes the
+draft. That is the one check CI cannot run: VideoToolbox frames in the
+accelerated OpenGL context an app uses, then `screenshot-raw` (rc3 shipped
+with every such screenshot failing). A release without that section and
+file in its body and assets has not been through it.
 
 ## Releases
 
@@ -261,6 +289,27 @@ which).
   strict`, the 15-case TLS matrix (verdicts and TLS log lines identical to
   rc3), coreaudio on four outputs x five files; the iOS simulator slice:
   the probe's checks, playback, audiounit.
+- **v0.41.0-plynic.rc5** — plynic-mpv `d75b92b584`, as rc4, and the same
+  inputs otherwise: a local build of rc5 gives frameworks byte-identical to
+  a local build of rc4 (every file of both archives; same LC_UUIDs). What
+  changed is how a release is checked and published:
+  - `tools/shot glsw strict` in CI: the VideoToolbox half of the screenshot
+    check through CGL's software renderer, which the runner has (rc4's CI
+    skipped it for want of an OpenGL context); rc3's frameworks fail it,
+    rc4's pass.
+  - releases are drafts until `tools/release/publish.sh` has run
+    `tools/shot gl strict` on a Mac against the published archive and
+    written the result into the release (see [Build](#build)); rc5 is the
+    first published that way.
+  - the zlib gate looks for zlib's whole API (`inflate`, `deflate`, `crc32`,
+    `adler32`, `zlibVersion`, plain or `z_`-prefixed; before: only
+    `_zlibVersion`); `sources/SHA256SUMS` lists `SOURCES.json` (it never
+    did) and a gate checks that it lists every file.
+  Checked on macOS 27 (Xcode 27.0), local build: the release gates,
+  `tools/probe --check`, `tools/keepout` sw and gl, `tools/shot` gl strict,
+  glsw strict and sw, the 15-case TLS matrix (identical to rc4). coreaudio
+  and the iOS simulator slice were not run again: their frameworks are
+  byte-identical to rc4's.
 
 ## What changed from media-kit
 
