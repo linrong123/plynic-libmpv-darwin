@@ -86,6 +86,13 @@ jobs:
       - name: Keepout
         run: tools/keepout/run.sh dist sw
 
+      # screenshot-raw of VideoToolbox and software-decoded frames through
+      # the OpenGL render API (skipped, and says so, where the machine has
+      # no OpenGL context; a VM without VideoToolbox decoding checks the
+      # software path only - tools/shot/run.sh dist gl strict on a Mac).
+      - name: Screenshot
+        run: tools/shot/run.sh dist gl
+
       - name: Manifest
         run: |
           python3 -c 'import json; m = json.load(open("dist/manifest.json")); print(json.dumps({k: m[k] for k in ("tag", "mpv_commit", "mpv_version", "ffmpeg_version", "deps", "toolchain", "checks")}, indent=2))'
