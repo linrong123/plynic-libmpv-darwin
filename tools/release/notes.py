@@ -27,6 +27,11 @@ CHECKS = [
      "screenshot-raw of VideoToolbox frames (nv12, p010) and software frames in bgr0 and rgba64, through "
      "CGL's software renderer: the OpenGL interop and the frame download a Mac does"),
     ("shot-sw", "tools/shot/run.sh dist sw", "screenshot-raw through the render API's software renderer"),
+    ("rotate-glsw", "tools/rotate/run.sh dist glsw",
+     "video-rotate 0/90/180/270 and a file's own rotation, VideoToolbox and software frames, read back "
+     "from the OpenGL render target (CGL's software renderer); vo=null reports the missing lavfi rotate filter"),
+    ("rotate-sw", "tools/rotate/run.sh dist sw",
+     "the render API's software renderer draws rotated frames unrotated instead of aborting"),
 ]
 
 

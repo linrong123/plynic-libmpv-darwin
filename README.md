@@ -198,6 +198,7 @@ $ tools/probe/run.sh dist --check      # versions, decoders, demuxers
 $ tools/probe/run.sh dist <file|url> [seconds] [opt=val ...]   # play, vo/ao null
 $ tools/keepout/run.sh dist [sw|gl]    # --sub-keepout, paused track switches
 $ tools/shot/run.sh dist [gl|glsw|sw] [strict]  # screenshot-raw of VideoToolbox / software frames
+$ tools/rotate/run.sh dist [gl|glsw|sw]         # rotation through the render API
 ```
 
 `tools/shot` plays two testsrc2 clips (H.264 → nv12, HEVC 10-bit → p010)
@@ -213,6 +214,21 @@ OpenGL, and runs `glsw strict` (rc3's frameworks fail it, rc4's pass; on
 the macos-15 and macos-26 images, macos-14's VM has no H.264 VideoToolbox
 decoder) and `sw` (the render API's software renderer, software decoding
 only). `gl strict` is the pre-release step on a Mac, below.
+
+`tools/rotate` plays a clip of four coloured quadrants through the render
+API with `video-rotate` 0/90/180/270 and one whose file says it is rotated
+(a display matrix), and reads each frame back from the render target: the
+OpenGL renderer has to show every orientation (`gl`, and `glsw` in
+`gpu-dumb-mode`, since CGL's software renderer returns black frames through
+mpv's floating-point intermediate textures), the software renderer (`sw`)
+the picture unrotated, and none of them may ask for a rotation filter.
+Rotation is the VO's job: mpv asks lavfi for its `rotate` filter only when
+the VO cannot rotate, and this FFmpeg has no such filter (overlay and
+equalizer are the only ones); the `null` case plays the rotated file with
+`vo=null` and expects mpv's fatal "filter 'rotate' not found or failed to
+allocate", which is what an app's log shows while its player has no video
+output yet. CI runs `glsw` and `sw`; rc5's frameworks fail `sw` (the
+process aborts on the first rotated frame).
 
 One package: `make TARGET=mk-pkg-mpv-macos-arm64-video`.
 
@@ -234,7 +250,8 @@ $ nix flake lock --override-input plynic-mpv github:linrong123/plynic-mpv/<sha>
 
 CI (`.github/workflows/ci.yaml`, `macos-15`, the image's default Xcode)
 builds every push to a `plynic/*` branch and runs the checks above
-(`tools/shot` as `glsw strict` and `sw`). For a tag `v*-plynic.*` it
+(`tools/shot` as `glsw strict` and `sw`, `tools/rotate` as `glsw` and
+`sw`). For a tag `v*-plynic.*` it
 creates the release **as a draft**, with a body that lists what CI checked
 (`tools/release/notes.py`); tags containing `rc` are prereleases. The build
 job only reads the repository; a separate job, for tags only, uploads the
