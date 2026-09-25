@@ -327,6 +327,30 @@ which).
   glsw strict and sw, the 15-case TLS matrix (identical to rc4). coreaudio
   and the iOS simulator slice were not run again: their frameworks are
   byte-identical to rc4's.
+- **v0.41.0-plynic.rc6** — plynic-mpv `4c4e802343`: `vo_libmpv: use the
+  VO_CAP of the renderer backend instead of the VO` (upstream `7a94ec5719`,
+  cherry-picked). vo_libmpv announced `VO_CAP_ROTATE90` for every render API
+  backend and computed a rotated source rectangle for the software backend
+  too, which cannot rotate: on rc5 the first frame rotated by 90 or 270
+  degrees - a portrait phone video's display matrix, or `video-rotate=90` -
+  aborted the process (`mp_image_crop()` assertion). media_kit_video uses
+  that backend in the iOS simulator and wherever its OpenGL texture cannot
+  be created. Now such frames are drawn unrotated there; OpenGL rotates as
+  before. A local build of rc6 differs from a local build of rc5 in
+  `Mpv.framework` (and its dSYM) only.
+  - `tools/rotate` (new, in CI as glsw and sw): every quarter turn and a
+    file's own rotation read back from the render target, the software
+    renderer's unrotated picture, and `vo=null`'s "filter 'rotate' not found"
+    (see [Build](#build)). Rotation is the VO's; FFmpeg keeps its two filters
+    (the same decision as plynic-libmpv-android's rc6: the only VO in an
+    app's paths that makes mpv ask for lavfi's `rotate` is `vo=null`, whose
+    frames are thrown away). rc5's frameworks fail `sw` (both rotated cases
+    abort); rc6's pass all three modes.
+  Checked on macOS 27 (Xcode 27.0, Apple M4 Pro), local build: the release
+  gates, `tools/probe --check`, `tools/keepout` sw and gl, `tools/shot` gl
+  strict, glsw strict and sw, `tools/rotate` gl, glsw and sw, the app's
+  23-case TLS testbed (`tool/tls-testbed`: 23 of 23, the same verdicts as
+  rc5's release).
 
 ## What changed from media-kit
 
