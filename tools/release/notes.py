@@ -33,6 +33,9 @@ CHECKS = [
      "filter; strict: no case skipped, the VideoToolbox cases decode with VideoToolbox"),
     ("rotate-sw", "tools/rotate/run.sh dist sw",
      "the render API's software renderer draws rotated frames unrotated instead of aborting"),
+    ("fallback", "tools/fallback/run.sh dist",
+     "a video stream no decoder can open (HEVC with a broken hvcC) after VideoToolbox failed: one software "
+     "attempt, the decoder wrapper's verdict, the core answering, the audio to its end"),
 ]
 
 

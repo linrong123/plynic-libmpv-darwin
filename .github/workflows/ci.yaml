@@ -123,6 +123,15 @@ jobs:
           tools/rotate/run.sh dist glsw strict | tee checks/rotate-glsw.txt
           tools/rotate/run.sh dist sw | tee checks/rotate-sw.txt
 
+      # A video stream no decoder can open (HEVC with a broken hvcC) after
+      # a hardware decoder failed: one software attempt, the decoder
+      # wrapper's verdict, the core answering, the audio to its end (rc7
+      # and upstream mpv retried software decoding forever under the core
+      # lock).
+      - name: Decoder fallback
+        shell: bash
+        run: tools/fallback/run.sh dist | tee checks/fallback.txt
+
       - name: Manifest
         run: |
           python3 -c 'import json; m = json.load(open("dist/manifest.json")); print(json.dumps({k: m[k] for k in ("tag", "mpv_commit", "mpv_version", "ffmpeg_version", "deps", "toolchain", "checks")}, indent=2))'
