@@ -39,17 +39,17 @@
     "plynic-mpv": {
       "flake": false,
       "locked": {
-        "lastModified": 1790390664,
-        "narHash": "sha256-i202y5lwTQjboMs3apMsi5qo4R/wGcTZonialV/bbbk=",
+        "lastModified": 1790422641,
+        "narHash": "sha256-ACqgcfsmM8DNznwrDMpXMuRcy8P7kziR8c4ekN71PoY=",
         "owner": "linrong123",
         "repo": "plynic-mpv",
-        "rev": "f7a734caa2bfdd75b016cb53a8d744a57485af52",
+        "rev": "c04b0880f00164b5f5985ecd915d4a94b330061a",
         "type": "github"
       },
       "original": {
         "owner": "linrong123",
         "repo": "plynic-mpv",
-        "rev": "f7a734caa2bfdd75b016cb53a8d744a57485af52",
+        "rev": "c04b0880f00164b5f5985ecd915d4a94b330061a",
         "type": "github"
       }
     },
