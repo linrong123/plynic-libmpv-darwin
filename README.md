@@ -198,7 +198,7 @@ $ tools/probe/run.sh dist --check      # versions, decoders, demuxers
 $ tools/probe/run.sh dist <file|url> [seconds] [opt=val ...]   # play, vo/ao null
 $ tools/keepout/run.sh dist [sw|gl]    # --sub-keepout, paused track switches
 $ tools/shot/run.sh dist [gl|glsw|sw] [strict]  # screenshot-raw of VideoToolbox / software frames
-$ tools/rotate/run.sh dist [gl|glsw|sw]         # rotation through the render API
+$ tools/rotate/run.sh dist [gl|glsw|sw] [strict]  # rotation through the render API
 ```
 
 `tools/shot` plays two testsrc2 clips (H.264 → nv12, HEVC 10-bit → p010)
@@ -227,8 +227,12 @@ the VO cannot rotate, and this FFmpeg has no such filter (overlay and
 equalizer are the only ones); the `null` case plays the rotated file with
 `vo=null` and expects mpv's fatal "filter 'rotate' not found or failed to
 allocate", which is what an app's log shows while its player has no video
-output yet. CI runs `glsw` and `sw`; rc5's frameworks fail `sw` (the
-process aborts on the first rotated frame).
+output yet. `strict`, as for `tools/shot`: a case skipped for want of the
+OpenGL context fails, and every mark of a VideoToolbox case has to find
+`hwdec-current` = `videotoolbox` (without it a run that fell back to
+software decoding passed on the software path). CI runs `glsw strict` and
+`sw`; rc5's frameworks fail `sw` (the process aborts on the first rotated
+frame).
 
 One package: `make TARGET=mk-pkg-mpv-macos-arm64-video`.
 
@@ -250,8 +254,7 @@ $ nix flake lock --override-input plynic-mpv github:linrong123/plynic-mpv/<sha>
 
 CI (`.github/workflows/ci.yaml`, `macos-15`, the image's default Xcode)
 builds every push to a `plynic/*` branch and runs the checks above
-(`tools/shot` as `glsw strict` and `sw`, `tools/rotate` as `glsw` and
-`sw`). For a tag `v*-plynic.*` it
+(`tools/shot` and `tools/rotate` as `glsw strict` and `sw`). For a tag `v*-plynic.*` it
 creates the release **as a draft**, with a body that lists what CI checked
 (`tools/release/notes.py`); tags containing `rc` are prereleases. The build
 job only reads the repository; a separate job, for tags only, uploads the
@@ -351,6 +354,27 @@ which).
   strict, glsw strict and sw, `tools/rotate` gl, glsw and sw, the app's
   23-case TLS testbed (`tool/tls-testbed`: 23 of 23, the same verdicts as
   rc5's release).
+- **v0.41.0-plynic.rc7** — plynic-mpv `f7a734caa2`: `vo_mediacodec_embed,
+  vo_mediacodec_osd: rotate in MediaCodec` (portrait videos upright on
+  Android's MediaCodec surface VOs; see plynic-libmpv-android's rc7). Here
+  it is shared code that stays idle: no Darwin VO sets
+  `VO_CAP_DECODER_ROTATE`, so vd_lavc never asks a decoder to rotate, and
+  vo_libmpv (the render API) rotates as before. The FFmpeg option it uses
+  is Android's own patch (`buildscripts/patches/ffmpeg-android/` there);
+  `patches/ffmpeg/` is unchanged and byte-identical with Android's. A local
+  build rebuilt only the mpv packages (every other package came from the
+  rc6-era store paths), so the frameworks differ from a local rc6 build in
+  `Mpv.framework` (and its dSYM).
+  - `tools/rotate` has `strict`, like `tools/shot`: a skipped case fails,
+    and a VideoToolbox case has to decode with VideoToolbox at every mark;
+    CI runs `glsw strict` (rc6's CI log shows `hwdec-current videotoolbox`
+    at every VideoToolbox mark, so it passed strict already). On rc6's
+    frameworks gl strict, glsw strict and sw pass; the H.264 clip with
+    `hwdec-codecs=hevc` (so VideoToolbox is not used) fails its mark as it
+    should.
+  Checked on macOS 27 (Xcode 27.0, Apple M4 Pro), local build: the release
+  gates, `tools/probe --check`, `tools/keepout` sw and gl, `tools/shot` gl
+  strict, glsw strict and sw, `tools/rotate` gl strict, glsw strict and sw.
 
 ## What changed from media-kit
 
