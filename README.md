@@ -199,6 +199,7 @@ $ tools/probe/run.sh dist <file|url> [seconds] [opt=val ...]   # play, vo/ao nul
 $ tools/keepout/run.sh dist [sw|gl]    # --sub-keepout, paused track switches
 $ tools/shot/run.sh dist [gl|glsw|sw] [strict]  # screenshot-raw of VideoToolbox / software frames
 $ tools/rotate/run.sh dist [gl|glsw|sw] [strict]  # rotation through the render API
+$ tools/fallback/run.sh dist                    # a video stream no decoder can open
 ```
 
 `tools/shot` plays two testsrc2 clips (H.264 → nv12, HEVC 10-bit → p010)
@@ -234,6 +235,16 @@ software decoding passed on the software path). CI runs `glsw strict` and
 `sw`; rc5's frameworks fail `sw` (the process aborts on the first rotated
 frame).
 
+`tools/fallback` plays a 4 s HEVC + AAC clip whose hvcC `mkbad.py` breaks,
+so every libavcodec HEVC decoder refuses to open it, with
+`hwdec=videotoolbox-copy` (a hardware attempt that needs no VO) and with
+software decoding only, and asks the core for `time-pos` once a second
+without blocking: mpv has to report "Failed to initialize a decoder for
+codec 'hevc'" once, keep answering and play the audio to its end. rc7 and
+upstream mpv retried software decoding forever on the core thread (rc7:
+about 100 000 "Could not open codec." before the first unanswered request,
+no verdict). CI runs it; it needs no GPU.
+
 One package: `make TARGET=mk-pkg-mpv-macos-arm64-video`.
 
 Local mpv work, without pushing:
@@ -254,7 +265,8 @@ $ nix flake lock --override-input plynic-mpv github:linrong123/plynic-mpv/<sha>
 
 CI (`.github/workflows/ci.yaml`, `macos-15`, the image's default Xcode)
 builds every push to a `plynic/*` branch and runs the checks above
-(`tools/shot` and `tools/rotate` as `glsw strict` and `sw`). For a tag `v*-plynic.*` it
+(`tools/shot` and `tools/rotate` as `glsw strict` and `sw`, and
+`tools/fallback`). For a tag `v*-plynic.*` it
 creates the release **as a draft**, with a body that lists what CI checked
 (`tools/release/notes.py`); tags containing `rc` are prereleases. The build
 job only reads the repository; a separate job, for tags only, uploads the
@@ -375,6 +387,24 @@ which).
   Checked on macOS 27 (Xcode 27.0, Apple M4 Pro), local build: the release
   gates, `tools/probe --check`, `tools/keepout` sw and gl, `tools/shot` gl
   strict, glsw strict and sw, `tools/rotate` gl strict, glsw strict and sw.
+
+- **v0.41.0-plynic.rc8** — plynic-mpv `c04b0880f0`: `vd_lavc: don't loop
+  forever when every decoder fails` (a topic of its own; see
+  plynic-libmpv-android's rc8). A file whose video libavcodec cannot open
+  at all, after VideoToolbox failed to open it too, made mpv retry software
+  decoding forever on the core thread, under the core lock: the player
+  hung, the log flooded, and "Failed to initialize a decoder" never came.
+  Now software decoding gets one attempt, the video track is dropped and the
+  audio plays on.
+  - `tools/fallback` (new, in CI): the broken clip with VideoToolbox and
+    without, and the unbroken one. rc7's frameworks fail the VideoToolbox
+    case (the core wedged within a second); a local build of this commit
+    passes 3 of 3.
+  Checked on macOS 27 (Xcode 27.0, Apple M4 Pro), local build: the release
+  gates except the one that compares `mpv-version` with `flake.lock` (the
+  build took the commit from a local checkout before it was pushed),
+  `tools/probe --check`, `tools/keepout` gl, `tools/shot` gl strict,
+  `tools/rotate` gl strict, `tools/fallback`.
 
 ## What changed from media-kit
 
