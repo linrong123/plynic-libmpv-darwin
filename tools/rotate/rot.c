@@ -9,7 +9,7 @@
 // quadrant of the picture: "RGBW" upright, "BRWG" turned 90 degrees
 // clockwise, "WBGR" 180, "GWRB" 270.
 //
-// usage: rot <gl|glsw|sw> <file> <hwdec> [opt=value | +action ...]
+// usage: rot <gl|glsw|sw> <file> <hwdec> [require-hwdec] [opt=value | +action ...]
 //        rot null <file> <hwdec> [opt=value | +action ...]
 //   gl, glsw, sw  as tools/shot: a hardware-accelerated CGL context, CGL's
 //                 software renderer, the render API's software renderer.
@@ -20,6 +20,9 @@
 //   +wait=<s>            keep rendering for <s> seconds
 //   +set=<name>=<value>  mpv_set_property_string
 //   +mark=<layout>       the last rendered frame has to have that layout
+// require-hwdec: at every mark, hwdec-current has to be <hwdec> (decoding
+// that fell back to software fails the mark instead of passing on the
+// software path).
 // The log is checked for mpv's messages about a rotation filter: with
 // vo=libmpv there must be none; with vo=null the missing filter has to be
 // reported ("filter 'rotate' not found or failed to allocate"). A process
@@ -185,6 +188,9 @@ int main(int argc, char **argv)
     gl = !strcmp(argv[1], "gl") || glsw;
     null_vo = !strcmp(argv[1], "null");
     const char *file = argv[2], *hwdec = argv[3];
+    int require_hwdec = 0;
+    for (int i = 4; i < argc; i++)
+        require_hwdec |= !strcmp(argv[i], "require-hwdec");
     setvbuf(stdout, NULL, _IOLBF, 0);
 
     CGLContextObj cgl = NULL;
@@ -284,8 +290,10 @@ int main(int argc, char **argv)
             char *hw = mpv_get_property_string(h, "hwdec-current");
             char *rot = mpv_get_property_string(h, "video-params/rotate");
             int ok = !strncmp(got, a + 5, 4) && got[4] == ' ';
-            printf("MARK %s: %s (hwdec-current %s, video-params/rotate %s) %s\n", a + 5, got, hw ? hw : "-",
-                   rot ? rot : "-", ok ? "ok" : "FAIL");
+            int hw_ok = !require_hwdec || (hw && !strcmp(hw, hwdec));
+            printf("MARK %s: %s (hwdec-current %s, video-params/rotate %s) %s%s\n", a + 5, got, hw ? hw : "-",
+                   rot ? rot : "-", ok && hw_ok ? "ok" : "FAIL", hw_ok ? "" : " (not the required hwdec)");
+            ok = ok && hw_ok;
             mpv_free(hw);
             mpv_free(rot);
             marks++;
@@ -309,8 +317,8 @@ int main(int argc, char **argv)
                (null_vo ? filter_seen[0] > 0 && !filter_seen[1] : any == 0) &&
                (null_vo || rendered > 0);
     const char *base = strrchr(file, '/') ? strrchr(file, '/') + 1 : file;
-    printf("RESULT %s (%s, %s, hwdec=%s: %d of %d marks, %s)\n", pass ? "PASS" : "FAIL", argv[1], base, hwdec,
-           good, marks,
+    printf("RESULT %s (%s, %s, hwdec=%s%s: %d of %d marks, %s)\n", pass ? "PASS" : "FAIL", argv[1], base, hwdec,
+           require_hwdec ? " required" : "", good, marks,
            null_vo ? (filter_seen[0] ? "the missing rotate filter reported" : "no rotate filter message")
                    : (any ? "rotation filter messages" : "no rotation filter asked for"));
     return pass ? 0 : 1;

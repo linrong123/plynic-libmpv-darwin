@@ -114,11 +114,13 @@ jobs:
       # software renderer cannot and draws unrotated, rc5 and earlier
       # aborted); a VO that cannot rotate makes mpv ask lavfi for a rotate
       # filter this FFmpeg does not have (vo=null reports it). glsw reads
-      # the frames back from CGL's software renderer, in gpu-dumb-mode.
+      # the frames back from CGL's software renderer, in gpu-dumb-mode;
+      # strict: a skipped case fails, and the VideoToolbox cases have to
+      # decode with VideoToolbox.
       - name: Rotation
         shell: bash
         run: |
-          tools/rotate/run.sh dist glsw | tee checks/rotate-glsw.txt
+          tools/rotate/run.sh dist glsw strict | tee checks/rotate-glsw.txt
           tools/rotate/run.sh dist sw | tee checks/rotate-sw.txt
 
       - name: Manifest

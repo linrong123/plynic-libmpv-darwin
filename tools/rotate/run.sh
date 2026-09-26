@@ -1,6 +1,6 @@
 #!/bin/bash
-# run.sh <dist> [gl|glsw|sw]: the rotation checks of rot.c on the macOS
-# frameworks of a build (dist/libmpv-xcframeworks_*_macos-*.tar.gz).
+# run.sh <dist> [gl|glsw|sw] [strict]: the rotation checks of rot.c on the
+# macOS frameworks of a build (dist/libmpv-xcframeworks_*_macos-*.tar.gz).
 #
 # mpv rotates in the VO when the VO says it can (VO_CAP_ROTATE90: the render
 # API's vo=libmpv) and otherwise inserts lavfi's `rotate` filter, which
@@ -26,8 +26,13 @@
 # - glsw renders with gpu-dumb-mode=yes: through mpv's full pipeline (its
 #   floating-point intermediate textures) CGL's software renderer returns
 #   black frames. The rotation is the same final pass in both.
-# The last line is a summary: "SUMMARY rotate <mode>: <n> passed, <n>
-# failed, <n> skipped".
+# strict, as tools/shot: a skipped case (no such OpenGL context here) fails,
+# and a VideoToolbox case has to decode with VideoToolbox at every mark
+# (hwdec-current; without it a fallback to software decoding passed on the
+# software path). CI runs `glsw strict` (its VM decodes H.264 with
+# VideoToolbox, see tools/shot) and `sw` (software decoding only).
+# The last line is a summary: "SUMMARY rotate <mode> [strict]: <n> passed,
+# <n> failed, <n> skipped".
 #
 # The clips: four 160x90 quadrants, red green / blue white, 10 fps, 20 s
 # (plynic-libmpv-android's tools/rotate-check has the same two):
@@ -41,7 +46,9 @@
 set -euo pipefail
 dist=$(cd "$1" && pwd)
 mode=${2:-gl}
+strict=${3:-}
 case "$mode" in gl|glsw|sw) ;; *) echo "run.sh: mode is gl, glsw or sw, not $mode" >&2; exit 2 ;; esac
+case "$strict" in ""|strict) ;; *) echo "run.sh: the third argument is strict or nothing, not $strict" >&2; exit 2 ;; esac
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -65,15 +72,24 @@ check() {  # check <label> <rot args...>
   echo "== $1"; shift
   local rc=0
   "$work/rot" "$@" || rc=$?
-  if [ $rc -eq 77 ]; then skip=$((skip + 1)); elif [ $rc -eq 0 ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+  if [ $rc -eq 77 ] && [ "$strict" != strict ]; then
+    skip=$((skip + 1))
+  elif [ $rc -eq 0 ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+  fi
 }
 for hwdec in "${hwdecs[@]}"; do
-  check "video-rotate, $mode, hwdec=$hwdec" "$mode" "$here/rot.mp4" "$hwdec" ${opts[@]+"${opts[@]}"} \
+  req=()
+  [ "$hwdec" != no ] && [ "$strict" = strict ] && req=(require-hwdec)
+  check "video-rotate, $mode, hwdec=$hwdec" "$mode" "$here/rot.mp4" "$hwdec" ${req[@]+"${req[@]}"} \
+    ${opts[@]+"${opts[@]}"} \
     +wait=1 +mark=$r0 +set=video-rotate=90 +wait=0.8 +mark=$r90 +set=video-rotate=180 +wait=0.8 +mark=$r180 \
     +set=video-rotate=270 +wait=0.8 +mark=$r270 +set=video-rotate=0 +wait=0.8 +mark=$r0
-  check "file, $mode, hwdec=$hwdec" "$mode" "$here/rot_meta90.mp4" "$hwdec" ${opts[@]+"${opts[@]}"} \
-    +wait=1 +mark=$r270 +set=video-rotate=90 +wait=0.8 +mark=$r0
+  check "file, $mode, hwdec=$hwdec" "$mode" "$here/rot_meta90.mp4" "$hwdec" ${req[@]+"${req[@]}"} \
+    ${opts[@]+"${opts[@]}"} +wait=1 +mark=$r270 +set=video-rotate=90 +wait=0.8 +mark=$r0
 done
 check "null, vo=null, hwdec=no" null "$here/rot_meta90.mp4" no +wait=1
-echo "SUMMARY rotate $mode: $pass passed, $fail failed, $skip skipped"
+echo "SUMMARY rotate $mode${strict:+ $strict}: $pass passed, $fail failed, $skip skipped"
 [ $fail -eq 0 ]
